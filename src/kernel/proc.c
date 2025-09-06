@@ -37,6 +37,7 @@ void proc_init() {
     kernel_proc->type = PROC_TYPE_KERNEL;
     kernel_proc->parent = NULL;                 // The kernel has no parent.
     kernel_proc->exit_code = 0;
+    kernel_proc->working_dir = vfs_root_node();
 
     // For x86-64, we need the physical address of the top-level page table (PML4).
     // The kernel process uses the initial page tables set up by the VMM.
@@ -58,7 +59,7 @@ void proc_init() {
     // Set the values that iretq will pop to start kernel_idle_process
     regs_frame->rip = (uint64_t)kernel_idle_process; // Jump to kernel_idle_process
     regs_frame->cs = 0x08; // Kernel Code Segment Selector
-    regs_frame->rflags = 0x202; // Enable interrupts (IF flag) and set bit 1 (always 1)
+    regs_frame->rflags = 0x246; // Enable interrupts (IF flag) and set bit 1 (always 1)
     regs_frame->user_rsp = (uint64_t)stack_top; // This is the RSP that iretq will pop. It should be the top of the stack.
     regs_frame->ss = 0x10; // Kernel Data Segment Selector
 
@@ -94,6 +95,7 @@ process_t* proc_create(proc_type_t proc_type) {
             new_proc->state = PROC_STATE_INIT;
             new_proc->type = proc_type;
             new_proc->exit_code = 0;
+            new_proc->working_dir = vfs_root_node();
 
             // Allocate a new kernel stack for this process
             new_proc->kernel_stack_size = 0x4000; // 16KB kernel stack
@@ -177,24 +179,24 @@ void proc_scheduler_run_special(registers_t *regs, bool is_exit) {
     }
 
     // --- Perform Context Switch ---
-    LOG_DEBUG("--- CONTEXT SWITCH ---");
-    LOG_DEBUG("  Scheduler invoked. is_exit=%d, regs=0x%llx", is_exit, (uint64_t)regs);
-    LOG_DEBUG("  From: PID %d, Type %d, State %d", prev_process->pid, prev_process->type, prev_process->state);
-    LOG_DEBUG("    Old kstack_ptr value:      0x%llx", prev_process->kstack_ptr);
-    LOG_DEBUG("    Old PML4: 0x%llx", prev_process->pml4_phys);
-    LOG_DEBUG("  To:   PID %d, Type %d, State %d", next_proc->pid, next_proc->type, next_proc->state);
-    LOG_DEBUG("    New kstack_ptr value:      0x%llx", next_proc->kstack_ptr);
-    LOG_DEBUG("    New PML4: 0x%llx", next_proc->pml4_phys);
-
-    if (regs) {
-        LOG_DEBUG("  Register state at switch (from interrupt/syscall):");
-        LOG_DEBUG("    RAX: 0x%llx, RBX: 0x%llx, RCX: 0x%llx, RDX: 0x%llx", regs->rax, regs->rbx, regs->rcx, regs->rdx);
-        LOG_DEBUG("    RSI: 0x%llx, RDI: 0x%llx, RBP: 0x%llx", regs->rsi, regs->rdi, regs->rbp);
-        LOG_DEBUG("    R8:  0x%llx, R9:  0x%llx, R10: 0x%llx, R11: 0x%llx", regs->r8, regs->r9, regs->r10, regs->r11);
-        LOG_DEBUG("    R12: 0x%llx, R13: 0x%llx, R14: 0x%llx, R15: 0x%llx", regs->r12, regs->r13, regs->r14, regs->r15);
-        LOG_DEBUG("    RIP: 0x%llx, RFLAGS: 0x%llx, RSP: 0x%llx", regs->rip, regs->rflags, regs->user_rsp);
-        LOG_DEBUG("    CS: 0x%llx, SS: 0x%llx", regs->cs, regs->ss);
-    }
+//    LOG_DEBUG("--- CONTEXT SWITCH ---");
+//    LOG_DEBUG("  Scheduler invoked. is_exit=%d, regs=0x%llx", is_exit, (uint64_t)regs);
+//    LOG_DEBUG("  From: PID %d, Type %d, State %d", prev_process->pid, prev_process->type, prev_process->state);
+//    LOG_DEBUG("    Old kstack_ptr value:      0x%llx", prev_process->kstack_ptr);
+//    LOG_DEBUG("    Old PML4: 0x%llx", prev_process->pml4_phys);
+//    LOG_DEBUG("  To:   PID %d, Type %d, State %d", next_proc->pid, next_proc->type, next_proc->state);
+//    LOG_DEBUG("    New kstack_ptr value:      0x%llx", next_proc->kstack_ptr);
+//    LOG_DEBUG("    New PML4: 0x%llx", next_proc->pml4_phys);
+//
+//    if (regs) {
+//        LOG_DEBUG("  Register state at switch (from interrupt/syscall):");
+//        LOG_DEBUG("    RAX: 0x%llx, RBX: 0x%llx, RCX: 0x%llx, RDX: 0x%llx", regs->rax, regs->rbx, regs->rcx, regs->rdx);
+//        LOG_DEBUG("    RSI: 0x%llx, RDI: 0x%llx, RBP: 0x%llx", regs->rsi, regs->rdi, regs->rbp);
+//        LOG_DEBUG("    R8:  0x%llx, R9:  0x%llx, R10: 0x%llx, R11: 0x%llx", regs->r8, regs->r9, regs->r10, regs->r11);
+//        LOG_DEBUG("    R12: 0x%llx, R13: 0x%llx, R14: 0x%llx, R15: 0x%llx", regs->r12, regs->r13, regs->r14, regs->r15);
+//        LOG_DEBUG("    RIP: 0x%llx, RFLAGS: 0x%llx, RSP: 0x%llx", regs->rip, regs->rflags, regs->user_rsp);
+//        LOG_DEBUG("    CS: 0x%llx, SS: 0x%llx", regs->cs, regs->ss);
+//    }
 
     // Update global current_process pointer
     current_process = next_proc;
@@ -202,15 +204,15 @@ void proc_scheduler_run_special(registers_t *regs, bool is_exit) {
     // Update the TSS with the new process's kernel stack pointer.
     // This is crucial for handling interrupts that occur while in user mode.
     uint64_t new_rsp0 = (uint64_t)next_proc->kernel_stack + next_proc->kernel_stack_size;
-    LOG_DEBUG("  Setting TSS RSP0 to: 0x%llx", new_rsp0);
+    // LOG_DEBUG("  Setting TSS RSP0 to: 0x%llx", new_rsp0);
     tss_set_stack(new_rsp0);
 
     // Switch page tables if necessary.
     if (next_proc->pml4_phys != prev_process->pml4_phys) {
-        LOG_DEBUG("  Switching page tables (PML4).");
+        // LOG_DEBUG("  Switching page tables (PML4).");
         vmm_load_pml4(next_proc->pml4_phys);
     } else {
-        LOG_DEBUG("  Page tables are the same, not switching.");
+        // LOG_DEBUG("  Page tables are the same, not switching.");
     }
 
     // Perform the assembly context switch.
@@ -218,7 +220,11 @@ void proc_scheduler_run_special(registers_t *regs, bool is_exit) {
     // It needs to save the current RSP (which is the RSP of proc_scheduler_run) into
     // prev_process->kstack_ptr, and then load next_proc->kstack_ptr and iretq.
 skip_scheduler:
-    LOG_DEBUG("Switching context to PID %d (%d): 0x%llx", next_proc->pid, next_proc->type, next_proc->kstack_ptr);
+    // LOG_DEBUG("Switching context to PID %d (%d): 0x%llx", next_proc->pid, next_proc->type, next_proc->kstack_ptr);
+    LOG_INFO("Next proc kstack_ptr=0x%llx, type=%d, pid=%llu", next_proc->kstack_ptr, next_proc->type, next_proc->pid);
+    registers_t* saved = (registers_t*) next_proc->kstack_ptr;
+    LOG_INFO("Saved frame: RIP=0x%llx CS=0x%llx RFLAGS=0x%llx RSP=0x%llx SS=0x%llx",
+             saved->rip, saved->cs, saved->rflags, saved->user_rsp, saved->ss);
     context_switch((uint64_t*)&prev_process->kstack_ptr, next_proc->kstack_ptr);
 }
 

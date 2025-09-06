@@ -66,7 +66,7 @@ bin/$(OUTPUT): $(OBJS)
 
 # Rule for the TAR archive
 .build/initramfs.tar: $(USER_BINS)
-	cd .build/usr && tar -cf ../initramfs.tar *
+	cd .build/usr && cp ../../src/usr/user.lds . && tar -cf ../initramfs.tar *
 
 # Include header dependencies (the '-' suppresses errors if files are missing)
 -include $(DEPS)
@@ -94,11 +94,13 @@ clean:
 qemu: all
 	qemu-system-x86_64 -m 8G \
 	-cdrom .build/risk-os.iso -boot d \
-	-serial stdio -hda .build/test_fat32.img
+	-serial stdio -hda .build/test_fat32.img \
+	-d int -D qemu.log
 
 qemu-usb: all
 	qemu-system-x86_64 -m 8G \
 	-device usb-ehci,id=ehci \
 	-drive if=none,id=usbstick,file=.build/risk-os.img \
 	-device usb-storage,bus=ehci.0,drive=usbstick \
-	-serial stdio -hda .build/test_fat32.img -boot menu=on
+	-serial stdio -hda .build/test_fat32.img -boot menu=on \
+	-d int -D qemu.log

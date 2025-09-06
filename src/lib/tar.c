@@ -3,8 +3,7 @@
 #include <libc/string.h>
 #include <lib/octal.h>
 
-// Lookup a file in a TAR archive, file contents are in the pointer 'out' and
-// the filesize is returned by the function. If 0 filesize found, check 'out' is NULL
+// Return a list of all of the tar headers in the archive
 int64_t tar_list(uint8_t *archive_start, tar_header_list_t **out) {
     tar_header_t* header = (tar_header_t *)archive_start;
     tar_header_list_t* list = NULL;

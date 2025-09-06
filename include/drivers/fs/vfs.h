@@ -11,6 +11,7 @@
 #define VFS_DEV     (1 << 3)
 #define VFS_READ    (1 << 4)
 #define VFS_WRITE   (1 << 5)
+#define VFS_EXEC    (1 << 6)
 
 struct vfs_node;
 struct mount_point;
@@ -52,6 +53,7 @@ typedef struct vfs_node {
     uint64_t length;
     file_ops_t *fops;
     void* private_data;
+    size_t private_data_size;
     struct vfs_node *parent;
     struct vfs_node *first_child;
     struct vfs_node *next_sibling;
@@ -66,6 +68,7 @@ typedef struct filesystem {
 
 typedef struct mount_point {
     struct vfs_node *node;
+    struct vfs_node *fs_root;
     struct filesystem *fs;
     struct mount_point *next;
 } mount_point_t;
@@ -79,5 +82,11 @@ int64_t vfs_mount(partition_t* partition, const char* path, const char* fs_type)
 vfs_node_t* vfs_open(const char *path);
 int64_t vfs_write(vfs_node_t *node, uint64_t offset, size_t size, const void *buffer);
 int64_t vfs_read(vfs_node_t *node, uint64_t offset, size_t size, void *buffer);
+
+vfs_node_t* vfs_root_node();
+
+void vfs_mount_dir(vfs_node_t *parent, vfs_node_t *mount_dir);
+
+void print_vfs_tree(vfs_node_t* node, int depth);
 
 #endif

@@ -1,4 +1,5 @@
 #include <drivers/fs/vfs.h>
+#include <drivers/fs/tarfs.h>
 #include <kernel/heap.h>
 #include <libc/string.h>
 #include <kernel/log.h>
@@ -14,6 +15,7 @@ static mount_point_t *active_mnts = NULL;
 
 // Forward declarations for internal helpers
 static filesystem_t* find_mount_point(vfs_node_t* node);
+static vfs_node_t* get_mounted_fs_root(vfs_node_t* mount_point_node);
 
 void vfs_init() {
     registered_fs = NULL;
@@ -98,22 +100,28 @@ int64_t vfs_mount(partition_t* partition, const char* fs_name, const char* path)
 
     if (fs == NULL) {
         LOG_ERR("VFS: Filesystem '%s' not registered.", fs_name);
-        return;
+        return -1;
     }
 
     vfs_node_t* mount_node = vfs_open(path);
     if (mount_node == NULL) {
         LOG_ERR("VFS: Mount point '%s' not found.", path);
-        return;
+        return -1;
+    }
+
+    vfs_node_t* fs_root = NULL;
+    if (fs->fs_ops && fs->fs_ops->mount) {
+        fs_root = fs->fs_ops->mount(partition, fs_name);
     }
 
     mount_point_t* new_mp = (mount_point_t*)kmalloc(sizeof(mount_point_t));
     if (new_mp == NULL) {
         LOG_ERR("VFS: Failed to allocate memory for mount point");
-        return;
+        return -1;
     }
 
     new_mp->node = mount_node;
+    new_mp->fs_root = fs_root;
     new_mp->fs = fs;
     new_mp->next = NULL;
 
@@ -128,6 +136,7 @@ int64_t vfs_mount(partition_t* partition, const char* fs_name, const char* path)
     }
 
     LOG_INFO("VFS: Mounted '%s' at '%s'", fs_name, path);
+    return 0;
 }
 
 vfs_node_t* vfs_open(const char *path) {
@@ -180,7 +189,10 @@ vfs_node_t* vfs_open(const char *path) {
 
         if (mounted_fs && mounted_fs->fs_ops && mounted_fs->fs_ops->lookup) {
             LOG_DEBUG("VFS: Delegating lookup to mounted FS '%s'", mounted_fs->name);
-            found_node = mounted_fs->fs_ops->lookup(current_node, component);
+            vfs_node_t* fs_root = get_mounted_fs_root(current_node);
+            if (fs_root) {
+                found_node = mounted_fs->fs_ops->lookup(fs_root, component);
+            }
         } else {
             LOG_DEBUG("VFS: Traversing in-memory children.");
             vfs_node_t* child = current_node->first_child;
@@ -222,11 +234,97 @@ int64_t vfs_read(vfs_node_t *node, uint64_t offset, size_t size, void *buffer) {
     return node->fops->read(node, offset, size, buffer);
 }
 
+vfs_node_t* vfs_root_node() {
+    return root_node;
+}
+
 static filesystem_t* find_mount_point(vfs_node_t* node) {
     mount_point_t* current = active_mnts;
     while (current) {
         if (current->node == node) {
             return current->fs;
+        }
+        current = current->next;
+    }
+    return NULL;
+}
+
+void print_vfs_tree(vfs_node_t* node, int depth) {
+    if (!node) return;
+
+    // Create indentation string
+    char indent[256] = {0};
+    for (int i = 0; i < depth && i < (int)(sizeof(indent)/2 - 1); i++) {
+        indent[i*2] = ' ';
+        indent[i*2 + 1] = ' ';
+    }
+
+    // Special case for root
+    if (depth == 0 && strcmp(node->name, "/") == 0) {
+        LOG_DEBUG("VFS: /");
+    } else if (node->flags & VFS_DIR) {
+        LOG_DEBUG("VFS: %s%s/", indent, node->name);
+    } else {
+        if (node->private_data) {
+            // Check if it's an executable
+            tar_file_data_t* data = (tar_file_data_t*)node->private_data;
+            if (node->flags & VFS_EXEC) {
+                LOG_DEBUG("VFS: %s%s (%lld bytes) [EXEC]", indent, node->name, data->size);
+            } else {
+                LOG_DEBUG("VFS: %s%s (%lld bytes)", indent, node->name, data->size);
+            }
+        } else {
+            LOG_DEBUG("VFS: %s%s", indent, node->name);
+        }
+    }
+
+    // Print all children - both in-memory and from mounted filesystems
+    // First print in-memory children
+    vfs_node_t* child = node->first_child;
+    while (child) {
+        print_vfs_tree(child, depth + 1);
+        child = child->next_sibling;
+    }
+
+    // Then, if this is a mount point, print children from the mounted filesystem
+    filesystem_t* mounted_fs = find_mount_point(node);
+    if (mounted_fs && mounted_fs->fs_ops && mounted_fs->fs_ops->lookup) {
+        vfs_node_t* fs_root = get_mounted_fs_root(node);
+        if (fs_root) {
+            // Print the mounted filesystem's children by actually traversing them
+            vfs_node_t* fs_child = fs_root->first_child;
+            while (fs_child) {
+                print_vfs_tree(fs_child, depth + 1);
+                fs_child = fs_child->next_sibling;
+            }
+        }
+    }
+}
+
+void vfs_mount_dir(vfs_node_t *parent, vfs_node_t *mount_dir) {
+    if(parent == NULL || mount_dir == NULL) {
+        return;
+    }
+
+    mount_dir->parent = parent;
+
+    if (parent->first_child == NULL) {
+        parent->first_child = mount_dir;
+    } else {
+        vfs_node_t* sibling = parent->first_child;
+        while (sibling->next_sibling != NULL) {
+            sibling = sibling->next_sibling;
+        }
+        sibling->next_sibling = mount_dir;
+    }
+}
+
+// Add this function to vfs.c:
+static vfs_node_t* get_mounted_fs_root(vfs_node_t* mount_point_node) {
+    mount_point_t* current = active_mnts;
+    while (current) {
+        if (current->node == mount_point_node) {
+            return current->fs_root;
         }
         current = current->next;
     }

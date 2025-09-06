@@ -114,13 +114,13 @@ static void ide_probe_drive(uint16_t channel_base, uint8_t channel_num, uint8_t 
 
     // Finally, announce to the system that we have a new disk
     disk_device_t* new_disk_device = (disk_device_t*)kmalloc(sizeof(disk_device_t));
-    strcpy(new_disk_device->name, "hda"); // TODO: name based on slot (1st hda, hdb etc)
-    new_disk_device->id = 0; // TODO: call disk_get_next_id(); or generate a GUID
-    new_disk_device->read = ide_read_sectors;
-    new_disk_device->write = ide_write_sectors;
-    new_disk_device->partition_count = 0;
-    new_disk_device->assoc_device = device;
-    new_disk_device->next       = NULL;
+    strcpy(new_disk_device->name, "hda");       // TODO: name based on slot (1st hda, hdb etc)
+    new_disk_device->id                 = 0;    // TODO: call disk_get_next_id(); or generate a GUID
+    new_disk_device->read               = ide_read_sectors;
+    new_disk_device->write              = ide_write_sectors;
+    new_disk_device->partition_count    = 0;
+    new_disk_device->assoc_device       = device;
+    new_disk_device->next               = NULL;
     disk_register(new_disk_device);
 }
 

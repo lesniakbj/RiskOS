@@ -137,8 +137,11 @@ isr_common_stub:
 
 .global context_switch
 context_switch:
-    # RDI: address of prev_process->kstack_ptr (unused)
+    # RDI: address of prev_process->kstack_ptr
     # RSI: next_proc->kstack_ptr (new RSP to load)
+    # Save current RSP
+    # mov [rdi], rsp
+
     # Load new RSP
     mov rsp, rsi
 

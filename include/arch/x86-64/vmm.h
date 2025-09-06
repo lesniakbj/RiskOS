@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <kernel/limine.h>
 
 #define PAGE_SIZE 4096
@@ -51,9 +52,11 @@ bool vmm_map_page_to(uint64_t pml4_phys, uint64_t virt_addr, uint64_t phys_addr,
 
 void vmm_unmap_page(uint64_t virt_addr);
 
+void* physical_to_virtual(uint64_t physical_addr);
 uint64_t vmm_get_physical_addr(uint64_t virt_addr);
 uint64_t vmm_get_kernel_pml4();
 uint64_t vmm_get_current_pml4();
 uint64_t vmm_create_address_space();
+uint64_t vmm_clone_address_space(uint64_t pml4_phys_src);
 
 #endif

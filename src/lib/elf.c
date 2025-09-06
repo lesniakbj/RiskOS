@@ -79,10 +79,11 @@ process_t* elf_load_process(void* file_ptr) {
     registers_t* regs_frame = (registers_t*)stack_ptr;
     memset(regs_frame, 0, sizeof(registers_t));
     regs_frame->rip = header->entry_point_addr;
-    regs_frame->cs = 0x23; // 0x20 | 3; // User code selector (0x20) with RPL 3
-    regs_frame->rflags = 0x202; // Enable interrupts (IF) and set bit 1 (always 1)
+    regs_frame->cs = 0x23;                      // 0x20 | 3; // User code selector (0x20) with RPL 3
+    regs_frame->rflags = 0x246;                 // Enable interrupts (IF) and set bit 1 (always 1)
     regs_frame->user_rsp = USER_STACK_TOP;
-    regs_frame->ss = 0x1b; //0x18 | 3; // User data selector (0x18) with RPL 3
+    regs_frame->ss = 0x1b;                      //0x18 | 3; // User data selector (0x18) with RPL 3
+
     // Tell the scheduler where to find this register frame
     proc->kstack_ptr = (uint64_t)regs_frame;
     proc->entry_point = (void*)header->entry_point_addr;

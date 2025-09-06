@@ -9,6 +9,27 @@ size_t strlen(const char *str) {
     return len;
 }
 
+char* strchr(const char* str, int64_t c) {
+    // Cast c to unsigned char to match standard behavior for comparison
+    unsigned char target = (unsigned char)c;
+
+    // Iterate through the string
+    while (*str != '\0') {
+        if (*str == target) {
+            return (char*)str; // Keep track of the last found position
+        }
+        str++;
+    }
+
+    // Check if the null terminator itself matches (c == '\0')
+    // This is part of the standard behavior.
+    if (target == '\0') {
+         // The end of the string is the last occurrence of '\0'
+        return (char*)str;
+    }
+
+    return NULL;
+}
 
 char* strrchr(const char* str, int64_t c) {
     char* last_occurrence = NULL;

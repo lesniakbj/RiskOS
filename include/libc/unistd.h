@@ -2,32 +2,34 @@
 #define LIBC_UNISTD_H
 
 #include <stdint.h>
+#include <stddef.h>
 
-// --- Process IPC/Control Syscalls ---
-#define SYSCALL_PROC_YIELD      50
-#define SYSCALL_PROC_EXIT       51
-#define SYSCALL_PROC_FORK       52
-#define SYSCALL_PROC_WAIT       53
-#define SYSCALL_PROC_WAIT_PID   54
-#define SYSCALL_PROC_PID        55
+// Syscall numbers
+#define SYS_READ                0
+#define SYS_WRITE               1
+#define SYS_OPEN                2
+#define SYS_CLOSE               3
 
-// TODO: Move to Syscall lib
-// --- VFS (IO, File, Device) Syscalls ---
-#define SYSCALL_VFS_WRITE       60
+#define SYS_BRK                 12
 
-
-#define ERR_NOPROC              -1
+#define SYS_PROC_YIELD          24
+#define SYS_PROC_EXIT           60
+#define SYS_PROC_PID            39
+#define SYS_PROC_FORK           57
 
 // --- Process Syscalls ---
 void yield();
 void exit(int status);
 int64_t fork();
-void wait();
-void wait_pid();
-uint64_t pid();
+int64_t pid();
+
+// --- Process memory requests ---
+int64_t brk(void* addr);
 
 // --- VFS File Syscalls ---
-int64_t write(uint8_t* bytes);
+int64_t write(uint64_t fd, const char* buf, size_t count);
+int64_t open(const char* path, uint16_t flags);
+int64_t close(uint64_t fd);
 
 
 #endif

@@ -1,6 +1,7 @@
 #include <arch/x86-64/vmm.h>
 #include <arch/x86-64/pmm.h>
 #include <kernel/log.h>
+#include <kernel/proc.h>
 #include <libc/string.h>
 
 // Pointer to the kernel's top-level page table (PML4)
@@ -17,7 +18,7 @@ static inline void flush_tlb_single(uint64_t addr) {
 }
 
 // Helper function to get the virtual address of a physical address using the HHDM
-static void* physical_to_virtual(uint64_t physical_addr) {
+void* physical_to_virtual(uint64_t physical_addr) {
     return (void*)(physical_addr + hhdm_offset);
 }
 
@@ -144,17 +145,98 @@ void vmm_unmap_page(uint64_t virt_addr) {
     }
 }
 
-uint64_t vmm_get_physical_addr(uint64_t virt_addr) {
-    pt_entry_t* pte = vmm_walk_to_pte(virt_addr, false);
-    if (pte == NULL || !(*pte & PAGE_PRESENT)) {
-        return 0; // Not mapped
+uint64_t vmm_get_physical_addr_from(uint64_t pml4_phys, uint64_t virt_addr) {
+    pml4_t* pml4_virt = physical_to_virtual(pml4_phys);
+
+    pt_entry_t* pte = vmm_walk_to_pte_from(pml4_virt, virt_addr, false);
+    if (pte == NULL || !(*pte & PAGE_PRESENT) || !(*pte & PAGE_USER)) {
+        return 0; // Not mapped or not a user page
     }
 
     return (*pte & PAGE_ADDR_MASK) + (virt_addr & 0xFFF);
+}
+
+uint64_t vmm_get_physical_addr(uint64_t virt_addr) {
+    uint64_t pml4_phys = vmm_get_current_pml4();
+    return vmm_get_physical_addr_from(pml4_phys, virt_addr);
 }
 
 uint64_t vmm_get_current_pml4() {
     uint64_t pml4_phys;
     asm volatile ("mov %%cr3, %0" : "=r" (pml4_phys));
     return pml4_phys;
+}
+
+static void clone_pt(pt_t* pt_virt_src, pt_t* pt_virt_dst, pml4_t* pml4_virt_src) {
+    for (int i = 0; i < 512; i++) {
+        if (pt_virt_src->entries[i] & PAGE_PRESENT) {
+            pt_entry_t* pte_src = &pt_virt_src->entries[i];
+            pt_entry_t* pte_dst = &pt_virt_dst->entries[i];
+
+            *pte_dst = *pte_src;
+
+            *pte_src &= ~PAGE_READ_WRITE;
+            *pte_dst &= ~PAGE_READ_WRITE;
+
+            // When forking, we need to flush the TLB for the source page table
+            // to ensure the read-only changes take effect.
+            uint64_t page_vaddr = (uint64_t)physical_to_virtual(*pte_src & PAGE_ADDR_MASK);
+            flush_tlb_single(page_vaddr);
+        }
+    }
+}
+
+static void clone_pd(pd_t* pd_virt_src, pd_t* pd_virt_dst, pml4_t* pml4_virt_src) {
+    for (int i = 0; i < 512; i++) {
+        if (pd_virt_src->entries[i] & PAGE_PRESENT) {
+            pt_t* pt_virt_src = (pt_t*)physical_to_virtual(pd_virt_src->entries[i] & PAGE_ADDR_MASK);
+            uint64_t pt_phys_dst = (uint64_t)pmm_alloc_block();
+            if (pt_phys_dst == 0) { return; }
+            pt_t* pt_virt_dst = (pt_t*)physical_to_virtual(pt_phys_dst);
+            memset(pt_virt_dst, 0, PAGE_SIZE);
+
+            pd_virt_dst->entries[i] = pt_phys_dst | (pd_virt_src->entries[i] & ~PAGE_ADDR_MASK);
+            clone_pt(pt_virt_src, pt_virt_dst, pml4_virt_src);
+        }
+    }
+}
+
+static void clone_pdpt(pdpt_t* pdpt_virt_src, pdpt_t* pdpt_virt_dst, pml4_t* pml4_virt_src) {
+    for (int i = 0; i < 512; i++) {
+        if (pdpt_virt_src->entries[i] & PAGE_PRESENT) {
+            pd_t* pd_virt_src = (pd_t*)physical_to_virtual(pdpt_virt_src->entries[i] & PAGE_ADDR_MASK);
+            uint64_t pd_phys_dst = (uint64_t)pmm_alloc_block();
+            if (pd_phys_dst == 0) { return; }
+            pd_t* pd_virt_dst = (pd_t*)physical_to_virtual(pd_phys_dst);
+            memset(pd_virt_dst, 0, PAGE_SIZE);
+
+            pdpt_virt_dst->entries[i] = pd_phys_dst | (pdpt_virt_src->entries[i] & ~PAGE_ADDR_MASK);
+            clone_pd(pd_virt_src, pd_virt_dst, pml4_virt_src);
+        }
+    }
+}
+
+uint64_t vmm_clone_address_space(uint64_t pml4_phys_src) {
+    uint64_t pml4_phys_dst = vmm_create_address_space();
+    if (pml4_phys_dst == 0) {
+        return 0;
+    }
+
+    pml4_t* pml4_virt_src = (pml4_t*)physical_to_virtual(pml4_phys_src);
+    pml4_t* pml4_virt_dst = (pml4_t*)physical_to_virtual(pml4_phys_dst);
+
+    for (int i = 0; i < 256; i++) {
+        if (pml4_virt_src->entries[i] & PAGE_PRESENT) {
+            pdpt_t* pdpt_virt_src = (pdpt_t*)physical_to_virtual(pml4_virt_src->entries[i] & PAGE_ADDR_MASK);
+            uint64_t pdpt_phys_dst = (uint64_t)pmm_alloc_block();
+            if (pdpt_phys_dst == 0) { return 0; }
+            pdpt_t* pdpt_virt_dst = (pdpt_t*)physical_to_virtual(pdpt_phys_dst);
+            memset(pdpt_virt_dst, 0, PAGE_SIZE);
+
+            pml4_virt_dst->entries[i] = pdpt_phys_dst | (pml4_virt_src->entries[i] & ~PAGE_ADDR_MASK);
+            clone_pdpt(pdpt_virt_src, pdpt_virt_dst, pml4_virt_src);
+        }
+    }
+
+    return pml4_phys_dst;
 }

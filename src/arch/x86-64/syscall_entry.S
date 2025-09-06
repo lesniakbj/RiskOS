@@ -70,12 +70,10 @@ syscall_entry:
 
     # CPU-pushed fields
     mov [rsp + REGS_RIP], rcx                     # User RIP (same as RCX)
-    mov qword ptr [rsp + REGS_CS], 0x18           # User code segment (adjust if needed)
+    mov qword ptr [rsp + REGS_CS], 0x23           # User code segment (adjust if needed)
     mov [rsp + REGS_RFLAGS], r11                  # User RFLAGS (same as R11)
-    mov r8, rsp
-    add r8, REGS_SIZE                             # Calculate what user RSP was
     mov [rsp + REGS_USER_RSP], r8                 # Approximate user RSP
-    mov qword ptr [rsp + REGS_SS], 0x20           # User data segment (adjust if needed)
+    mov qword ptr [rsp + REGS_SS], 0x1b           # User data segment (adjust if needed)
 
     # Pass pointer to syscall_args_t as first argument
     mov rdi, rsp

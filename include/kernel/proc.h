@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <drivers/fs/vfs.h>
 #include <arch/x86-64/interrupts.h>
 #include <arch/x86-64/vmm.h>
 
@@ -23,22 +24,23 @@ typedef enum {
 // Process types
 typedef enum {
     PROC_TYPE_KERNEL = 0,   // Kernel process (runs in ring 0)
-    PROC_TYPE_USER           // User process (runs in ring 3)
+    PROC_TYPE_USER          // User process (runs in ring 3)
 } proc_type_t;
 
 // Process control block
 typedef struct process {
-    uint8_t used;                 // Is this process slot in use?
-    uint64_t pid;                 // Process ID
-    proc_state_t state;          // Current state of the process
-    proc_type_t type;            // Type of process (kernel or user)
-    uint64_t pml4_phys;          // Physical address of the process's page table (PML4)
-    void* kernel_stack;          // Pointer to the kernel stack for this process
-    size_t kernel_stack_size;    // Size of the kernel stack
-    uint64_t kstack_ptr;          // Current kernel stack pointer (used for context switches)
-    void* entry_point;            // Entry point of the process
+    uint8_t used;               // Is this process slot in use?
+    uint64_t pid;               // Process ID
+    proc_state_t state;         // Current state of the process
+    proc_type_t type;           // Type of process (kernel or user)
+    uint64_t pml4_phys;         // Physical address of the process's page table (PML4)
+    void* kernel_stack;         // Pointer to the kernel stack for this process
+    size_t kernel_stack_size;   // Size of the kernel stack
+    uint64_t kstack_ptr;        // Current kernel stack pointer (used for context switches)
+    void* entry_point;          // Entry point of the process
     struct process* parent;     // Pointer to the parent process
     uint64_t exit_code;         // Exit code if the process has exited
+    vfs_node_t* working_dir;    // Working dir of this process
 } process_t;
 
 // --- Process Manager Functions ---

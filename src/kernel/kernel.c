@@ -13,6 +13,7 @@
 #include <drivers/pit.h>
 #include <drivers/disk.h>
 #include <drivers/fs/vfs.h>
+#include <drivers/fs/tarfs.h>
 #include <drivers/fs/devfs.h>
 #include <drivers/fs/fat32.h>
 #include <arch/x86-64/gdt.h>
@@ -34,7 +35,7 @@ static void memory_init();
 static void device_init();
 static void register_interrupt_handlers();
 static void register_syscall_vector();
-static void load_initramfs();
+static struct limine_file* load_initramfs();
 
 #define KERNEL_HEAP_START 0xffffc90000000000
 #define KERNEL_HEAP_INITIAL_SIZE 0x1000
@@ -75,29 +76,30 @@ void kernel_main() {
     register_interrupt_handlers();
     register_syscall_vector();
 
-    // Phase 5: Initramfs
-    struct limine_file* init_file;
-    load_initramfs(&init_file);
+    // Phase 5: VFS init and Initramfs
+    // TODO: Instead of attaching the node directly to the VFS, add a delegation layer
+    // so that when the VFS encounters nodes not in its own tree it delegates to another driver
+    vfs_init();
+    tarfs_init(load_initramfs(), "init");
 
-    // TODO: Mount the initram fs to... /boot? /init? some of these things are sbins... so maybe /sbin?
-    tar_header_list_t* headers = NULL;
-    int64_t files = tar_list(init_file->address, &headers);
-    LOG_DEBUG("Found %lld files in initramfs", files);
+    print_vfs_tree(vfs_root_node(), 0);
 
-    // Init file is an ELF binary, so we need to parse the ELF headers/etc..
-    uint8_t* init_file_ptr = NULL;
-    int64_t fsize = tar_lookup(init_file->address, "sbin/init", &init_file_ptr);
-    LOG_DEBUG("Tried to parse a file. Filesize: %lld", fsize);
-    uint8_t* cat_file_ptr = NULL;
-    int64_t fsize2 = tar_lookup(init_file->address, "sbin/cat", &cat_file_ptr);
-    LOG_DEBUG("Tried to parse a file. Filesize: %lld", fsize2);
-    proc_exec(elf_load_process(init_file_ptr));
-    proc_exec(elf_load_process(cat_file_ptr));
-
-
+    // Test opening a file in the initramfs
+    vfs_node_t* test_node = vfs_open("/init/sbin/init");
+    if (test_node) {
+        LOG_INFO("Successfully opened /init/sbin/init");
+        // You can now read from this node using vfs_read
+        if(test_node->flags & VFS_EXEC) {
+            LOG_INFO("File is an exec!");
+            proc_exec(elf_load_process(((tar_file_data_t*)(test_node->private_data))->data));
+        } else {
+            LOG_INFO("File is a regular file!");
+        }
+    } else {
+        LOG_ERR("Failed to open /init/sbin/init");
+    }
 
     // Phase 6: Init then VFS (DevFS, Fat32, etc)
-    // vfs_init();
     // devfs_init();
     // vfs_create_directory("dev");
     // vfs_create_directory("hda1");
@@ -106,10 +108,6 @@ void kernel_main() {
     // serial_register();
     // fat32_init();
     // disk_system_init();
-    // vfs_node_t* console = vfs_open("/dev/console");
-    // vfs_node_t* serial = vfs_open("/dev/serial01");
-    // vfs_write(console, 0, strlen("Hello data!\n"), "Hello data!\n");
-    // vfs_write(serial, 0, strlen("Hello data!\n"), "Hello data!\n");
 
     // TODO: Screen init first, then screen->attach_console(console_init());
     // TODO: Get active console via screen->active_console
@@ -127,7 +125,7 @@ void kernel_main() {
     for(;;);
 }
 
-static void load_initramfs(struct limine_file** out) {
+static struct limine_file* load_initramfs() {
     struct limine_file* init_tar_module = NULL;
     for (uint64_t i = 0; i < module_request.response->module_count; i++) {
         if(strcmp(module_request.response->modules[i]->path, "/boot/initramfs.tar") == 0) {
@@ -144,7 +142,7 @@ static void load_initramfs(struct limine_file** out) {
     LOG_DEBUG("Initramfs found: Rev: %llu, Addr: 0x%llx, Size: %llu, Path: %s, CmdLine: %s, Type: %u, Partition: %u, Disk: %u",
                 init_tar_module->revision, init_tar_module->address, init_tar_module->size, init_tar_module->path, init_tar_module->string,
                 init_tar_module->media_type, init_tar_module->partition_index, init_tar_module->mbr_disk_id);
-    *out = init_tar_module;
+    return init_tar_module;
 }
 
 static void register_syscall_vector() {
