@@ -24,7 +24,6 @@
 
 // --- Process Syscalls ---
 void yield();
-void exit(int status);
 int64_t fork();
 int64_t pid();
 
@@ -35,6 +34,7 @@ int64_t brk(void* addr);
 int64_t write(uint64_t fd, const char* buf, size_t count);
 int64_t open(const char* path, uint16_t flags);
 int64_t close(uint64_t fd);
+void exit(int64_t status);
 
 
 #endif

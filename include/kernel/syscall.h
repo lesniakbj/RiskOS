@@ -13,7 +13,6 @@
 #define SYSCALL_PROC_YIELD      24
 #define SYSCALL_PROC_EXIT       60
 #define SYSCALL_PROC_PID        39
-#define SYSCALL_PROC_FORK       2
 #define SYSCALL_PROC_FORK       57
 
 // The C-level syscall handler, to be called from the assembly wrapper.

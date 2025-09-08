@@ -31,6 +31,10 @@ int main() {
 
         if(counter > 1000) {
             mux_puts(fd, "Time for me to exit!");
+            int64_t status = close(fd);
+            if(!status) {
+                mux_puts(fd, "I just closed a file descriptor for serial! I shouldn't see this on serial!");
+            }
             exit(pid + 100);    // Exit with the PID so we can test we receive it correctly.
         }
     }

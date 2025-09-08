@@ -20,7 +20,7 @@ int64_t fork() {
     return pid;
 }
 
-void exit(int status) {
+void exit(int64_t status) {
     asm volatile (
         "syscall"
         :
@@ -52,7 +52,7 @@ int64_t write(uint64_t fd, const char* buf, size_t count) {
 }
 
 int64_t open(const char* path, uint16_t flags) {
-    int fd;
+    int64_t fd;
     asm volatile (
         "syscall"
         : "=a" (fd)
@@ -60,4 +60,15 @@ int64_t open(const char* path, uint16_t flags) {
         : "rcx", "r11", "memory"
     );
     return fd;
+}
+
+int64_t close(uint64_t fd) {
+    int64_t status;
+    asm volatile (
+        "syscall"
+        : "=a" (status)
+        : "a" (SYS_CLOSE), "D" (fd)
+        : "rcx", "r11", "memory"
+    );
+    return status;
 }

@@ -15,12 +15,15 @@ static int64_t sys_exit_proc(registers_t* regs);
 static int64_t sys_fork_proc(registers_t* parent_regs);
 static int64_t sys_write(uint64_t fd, const char* buf, size_t count);
 static int64_t sys_open(const char* path, uint16_t flags);
+static int64_t sys_close(uint64_t fd);
 
 // Helper to find the next available file descriptor for the current process
 static int get_next_fd() {
     process_t* current_proc = proc_get_current();
     for (int i = 0; i < MAX_FD_PER_PROCESS; ++i) {
-        if (current_proc->file_descriptors[i].node == NULL) {
+        if (&(current_proc->file_descriptors[i]) == NULL) {
+            // TODO: We need to properly create the fd struct
+        } else if(current_proc->file_descriptors[i].node == NULL) {
             return i;
         }
     }
@@ -51,10 +54,14 @@ int64_t syscall_handler(registers_t* regs) {
     LOG_DEBUG("  FS:  0x%llx, GS:  0x%llx", regs->fs, regs->gs);
 
     switch (regs->rax) {
+        case SYSCALL_READ:
+            return 0;
         case SYSCALL_WRITE:
             return sys_write(regs->rdi, (const char*)regs->rsi, regs->rdx);
         case SYSCALL_OPEN:
             return sys_open((const char*)regs->rdi, (uint16_t)regs->rsi);
+        case SYSCALL_CLOSE:
+            return sys_close(regs->rdi);
         case SYSCALL_PROC_YIELD:
             proc_scheduler_run(regs);
             return -1;
@@ -118,6 +125,21 @@ static int64_t sys_write(uint64_t fd, const char* buf, size_t count) {
     }
 
     return bytes_written;
+}
+
+
+static int64_t sys_close(uint64_t fd) {
+    if (fd >= MAX_FD_PER_PROCESS || proc_get_current()->file_descriptors[fd].node == NULL) {
+        return -1;
+    }
+
+    process_t* current = proc_get_current();
+    file_desc_t* file = &current->file_descriptors[fd];
+    // TODO: vfs_close(file); // This function would handle reference counting and resource cleanup.
+    current->file_descriptors[fd].node = NULL;
+    current->file_descriptors[fd].offset = 0;
+    current->file_descriptors[fd].flags = 0;
+    return 0;
 }
 
 static int64_t sys_fork_proc(registers_t* parent_regs) {

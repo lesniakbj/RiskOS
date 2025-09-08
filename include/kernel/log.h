@@ -34,7 +34,7 @@ char* format_size(uint64_t size);
 #define LOG_DEBUG(format, ...) if(LOG_ENABLED) log_print(LOG_LEVEL_DEBUG, __FILENAME__,  __builtin_return_address(0), __LINE__, format, ##__VA_ARGS__)
 #define LOG_INFO(format, ...)  if(LOG_ENABLED) log_print(LOG_LEVEL_INFO, __FILENAME__,  __builtin_return_address(0), __LINE__, format, ##__VA_ARGS__)
 #define LOG_WARN(format, ...)  if(LOG_ENABLED) log_print(LOG_LEVEL_WARN, __FILENAME__,  __builtin_return_address(0), __LINE__, format, ##__VA_ARGS__)
-#define LOG_ERR(format, ...)   if(LOG_ENABLED) log_print(LOG_LEVEL_ERR, __FILENAME__,  __builtin_return_address(0), __LINE__, format, ##__VA_ARGS__)
-#define LOG_PANIC(format, ...) if(LOG_ENABLED) log_print(LOG_LEVEL_PANIC, __FILENAME__,  __builtin_return_address(0), __LINE__, format, ##__VA_ARGS__)
+#define LOG_ERR(format, ...)   log_print(LOG_LEVEL_ERR, __FILENAME__,  __builtin_return_address(0), __LINE__, format, ##__VA_ARGS__)
+#define LOG_PANIC(format, ...) log_print(LOG_LEVEL_PANIC, __FILENAME__,  __builtin_return_address(0), __LINE__, format, ##__VA_ARGS__)
 
 #endif
