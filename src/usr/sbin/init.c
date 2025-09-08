@@ -36,6 +36,13 @@ int main() {
 
     if(bytes_read == 532) {
         mux_puts(fd, "I read 532 bytes! yay!");
+        mux_puts(fd, "Those UTF-8 bytes yield:");
+        mux_puts(fd, buf);
+
+        char ascii_buf[533];
+        utf8_to_ascii_safe(ascii_buf, buf, 533);
+        mux_puts(fd, "Those ASCII bytes yield:");
+        mux_puts(fd, ascii_buf);
     }
 
     for(;;) {
@@ -44,6 +51,36 @@ int main() {
         if(counter % 500 == 0) {
             yield();
             mux_puts(fd, "I just did a yield!");
+
+            // Testing
+            mux_puts(fd, "  Lets test brk() while we're here...");
+            int64_t status = brk((void*)0x802000);
+            if(status == 0) {
+                mux_puts(fd, "  We set our brk to 0x802000");
+                mux_puts(fd, "  But wait! I wanna see what our break is...");
+                int64_t current_brk_val = (int64_t)brk(0);
+                if(current_brk_val > 0) {
+                    char brk_str[21];
+                    itoa(current_brk_val, brk_str, 16);
+                    mux_puts(fd, "  Current break is: ");
+                    mux_puts(fd, brk_str);
+                    mux_puts(fd, "  Requesting addition of 0x100000");
+                    void* sbrk_ret = sbrk(0x100000);
+                    if ((int64_t)sbrk_ret != -1) {
+                        int64_t new_brk_val = (int64_t)brk(0);
+                        if(new_brk_val > 0) {
+                            char new_brk_str[21];
+                            itoa(new_brk_val, new_brk_str, 16);
+                            mux_puts(fd, "  New break is: ");
+                            mux_puts(fd, new_brk_str);
+                        }
+                    } else {
+                        mux_puts(fd, "  sbrk failed!");
+                    }
+                }
+            } else {
+                mux_puts(fd, "  brk(0x802000) failed!");
+            }
         }
 
         if(counter > 1000) {

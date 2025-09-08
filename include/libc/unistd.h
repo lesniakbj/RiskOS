@@ -34,6 +34,7 @@ int64_t pid();
 
 // --- Process memory requests ---
 int64_t brk(void* addr);
+void* sbrk(int64_t increment);
 
 // --- VFS File Syscalls ---
 int64_t read(uint64_t fd, void* buf, size_t count);

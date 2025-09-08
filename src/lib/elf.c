@@ -60,7 +60,22 @@ process_t* elf_load_process(void* file_ptr) {
 
         // Switch back to the kernel's address space
         vmm_load_pml4(old_pml4);
+
+        // Set the initial program break for the process
+        if (prog_header->entry_type == 0x01) { // PT_LOAD
+            uint64_t segment_end = prog_header->virtual_addr + prog_header->mem_used;
+            if (segment_end > proc->program_break) {
+                proc->program_break = segment_end;
+                if (proc->program_break_start == 0) {
+                    proc->program_break_start = segment_end;
+                }
+            }
+        }
     }
+
+    // Align the program break to the next page boundary
+    proc->program_break = (proc->program_break + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    proc->program_break_start = proc->program_break;
 
     // Stage 4: Allocate and map a user-mode stack
     for (uint64_t i = 0; i < USER_STACK_SIZE; i += PAGE_SIZE) {

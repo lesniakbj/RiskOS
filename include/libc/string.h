@@ -12,6 +12,8 @@ char* strncpy(char* dest, const char* src, size_t n);
 int strcmp(const char* s1, const char* s2);
 char* strtok(char* str, const char* delim);
 
+void utf8_to_ascii_safe(char* dest, const char* src, size_t dest_size);
+
 void *memcpy(void *restrict dest, const void *restrict src, size_t n);
 void *memset(void *s, int c, size_t n);
 void *memmove(void *dest, const void *src, size_t n);

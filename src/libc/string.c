@@ -176,3 +176,36 @@ char* strncpy(char* dest, const char* src, size_t n) {
     }
     return dest;
 }
+
+// Converts a UTF-8 string to an ASCII-safe string, replacing non-ASCII characters with '?'.
+// dest_size is the maximum size of the destination buffer, including the null terminator.
+void utf8_to_ascii_safe(char* dest, const char* src, size_t dest_size) {
+    if (dest == NULL || src == NULL || dest_size == 0) {
+        return;
+    }
+
+    size_t src_idx = 0;
+    size_t dest_idx = 0;
+
+    while (src[src_idx] != '\0' && dest_idx < dest_size - 1) {
+        unsigned char c = (unsigned char)src[src_idx];
+
+        if (c < 0x80) { // ASCII character (0xxxxxxx)
+            dest[dest_idx++] = c;
+            src_idx++;
+        } else if ((c & 0xE0) == 0xC0) { // 2-byte UTF-8 sequence (110xxxxx 10xxxxxx)
+            dest[dest_idx++] = '?'; // Replace with placeholder
+            src_idx += 2; // Skip 2 bytes
+        } else if ((c & 0xF0) == 0xE0) { // 3-byte UTF-8 sequence (1110xxxx 10xxxxxx 10xxxxxx)
+            dest[dest_idx++] = '?'; // Replace with placeholder
+            src_idx += 3; // Skip 3 bytes
+        } else if ((c & 0xF8) == 0xF0) { // 4-byte UTF-8 sequence (11110xxx 10xxxxxx 10xxxxxx 10xxxxxx)
+            dest[dest_idx++] = '?'; // Replace with placeholder
+            src_idx += 4; // Skip 4 bytes
+        } else { // Invalid UTF-8 start byte or continuation byte
+            dest[dest_idx++] = '?'; // Replace with placeholder
+            src_idx++; // Advance by one byte
+        }
+    }
+    dest[dest_idx] = '\0'; // Null-terminate the destination string
+}

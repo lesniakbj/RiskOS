@@ -20,6 +20,7 @@ static int64_t sys_write(uint64_t fd, const char* buf, size_t count);
 static int64_t sys_open(const char* path, uint16_t flags);
 static int64_t sys_close(uint64_t fd);
 static int64_t sys_lseek(uint64_t fd, int64_t offset, uint8_t wence);
+static int64_t sys_brk(uint64_t addr);
 
 // Helper to find the next available file descriptor for the current process
 static int get_next_fd() {
@@ -78,6 +79,8 @@ int64_t syscall_handler(registers_t* regs) {
             return proc_get_current()->pid;
         case SYSCALL_PROC_FORK:
             return sys_fork_proc(regs);
+        case SYS_BRK:
+            return sys_brk(regs->rdi);
         default:
             LOG_DEBUG("Unknown syscall number: %llu", regs->rax);
             return -1; // Error code
@@ -95,16 +98,7 @@ static int64_t sys_exit_proc(registers_t* regs) {
 }
 
 static int64_t sys_write(uint64_t fd, const char* buf, size_t count) {
-    LOG_ERR("--- sys_write called with fd=%llu ---", fd);
-    LOG_ERR("Buf: '%s', Count: %d", buf, count);
     process_t* p = proc_get_current();
-    for (int i = 0; i < MAX_FD_PER_PROCESS; i++) {
-        if (p->file_descriptors[i].node != NULL) {
-            LOG_ERR("  FD %d: node=0x%llx, name='%s'", i,
-                      (uint64_t)p->file_descriptors[i].node,
-                      p->file_descriptors[i].node->name);
-        }
-    }
 
     if (fd >= MAX_FD_PER_PROCESS) {
         LOG_ERR("sys_write: ERROR: fd %llu is out of bounds (MAX_FD_PER_PROCESS=%d)", fd, MAX_FD_PER_PROCESS);
@@ -118,24 +112,19 @@ static int64_t sys_write(uint64_t fd, const char* buf, size_t count) {
         LOG_ERR("sys_write: ERROR: file->node is NULL for fd %llu", fd);
         return -1;
     }
-    LOG_ERR("sys_write: Passed FD and node checks for fd %llu, node name: '%s'", fd, file->node->name);
 
     char kbuf[MAX_WRITE_SIZE + 1];
     size_t write_count = count > MAX_WRITE_SIZE ? MAX_WRITE_SIZE : count;
-    LOG_ERR("sys_write: Attempting to copy %zu bytes from user buffer to kernel buffer (max %d)", write_count, MAX_WRITE_SIZE);
     if (copy_from_user(kbuf, buf, write_count) != 0) {
         LOG_ERR("sys_write: ERROR: copy_from_user failed for fd %llu", fd);
         return -2;
     }
     kbuf[write_count] = '\0'; // Ensure null termination for logging/printing
-    LOG_ERR("sys_write: Successfully copied %zu bytes to kernel buffer. Content: '%s'", write_count, kbuf);
 
-    LOG_ERR("SYSCALL: Writing to VFS file '%s' '%llu' '%llu' '%s'", file->node->name, file->offset, write_count, kbuf);
     int64_t bytes_written = vfs_write(file->node, file->offset, write_count, kbuf);
     if (bytes_written > 0) {
         file->offset += bytes_written;
     }
-    LOG_ERR("sys_write: vfs_write returned %lld bytes written for fd %llu", bytes_written, fd);
 
     return bytes_written;
 }
@@ -217,14 +206,74 @@ static int64_t sys_lseek(uint64_t fd, int64_t offset, uint8_t wence) {
     return new_off;
 }
 
-static int64_t sys_read(uint64_t fd, void* buf, size_t count) {
-    LOG_ERR("--- sys_read started ---");
-    LOG_ERR("  fd=%llu, user_buf=0x%llx, user_count=%zu", fd, (uint64_t)buf, count);
+static int64_t sys_brk(uint64_t addr) {
+    process_t* current_proc = proc_get_current();
+    uint64_t old_program_break = current_proc->program_break;
 
+    if (addr == 0) {
+        // brk(0) returns the current program break.
+        // This is a non-standard Linux behavior for the syscall,
+        // but it's what sbrk(0) would internally do.
+        // For the actual brk() syscall, it should return 0 on success.
+        // We'll return the current break here, and the libc wrapper will handle it.
+        return old_program_break;
+    }
+
+    // Align the requested address to page boundary
+    uint64_t new_program_break_aligned = (addr + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+    uint64_t old_program_break_aligned = (old_program_break + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+    if (new_program_break_aligned < current_proc->program_break_start) {
+        // Cannot shrink below initial program break
+        LOG_ERR("SYSCALL: brk(0x%llx) failed: cannot shrink below initial break 0x%llx", addr, current_proc->program_break_start);
+        return -1; // Return -1 on error
+    }
+
+    if (new_program_break_aligned > old_program_break_aligned) {
+        // Expand heap
+        for (uint64_t page = old_program_break_aligned; page < new_program_break_aligned; page += PAGE_SIZE) {
+            void* phys_page = pmm_alloc_block();
+            if (phys_page == NULL) {
+                LOG_ERR("SYSCALL: brk failed to allocate physical page for 0x%llx", page);
+                // Rollback any pages already mapped in this call
+                for (uint64_t p = old_program_break_aligned; p < page; p += PAGE_SIZE) {
+                    vmm_unmap_page_from(current_proc->pml4_phys, p);
+                    pmm_free_block((void*)vmm_get_physical_addr_from(current_proc->pml4_phys, p));
+                }
+                return -1; // Return -1 on failure
+            }
+            if (!vmm_map_page_to(current_proc->pml4_phys, page, (uint64_t)phys_page, PAGE_PRESENT | PAGE_READ_WRITE | PAGE_USER)) {
+                LOG_ERR("SYSCALL: brk failed to map virtual page 0x%llx to physical 0x%llx", page, (uint64_t)phys_page);
+                pmm_free_block(phys_page);
+                // Rollback
+                for (uint64_t p = old_program_break_aligned; p < page; p += PAGE_SIZE) {
+                    vmm_unmap_page_from(current_proc->pml4_phys, p);
+                    pmm_free_block((void*)vmm_get_physical_addr_from(current_proc->pml4_phys, p));
+                }
+                return -1; // Return -1 on failure
+            }
+        }
+    } else if (new_program_break_aligned < old_program_break_aligned) {
+        // Shrink heap
+        for (uint64_t page = new_program_break_aligned; page < old_program_break_aligned; page += PAGE_SIZE) {
+            uint64_t phys_addr = vmm_get_physical_addr_from(current_proc->pml4_phys, page);
+            if (phys_addr != 0) {
+                vmm_unmap_page_from(current_proc->pml4_phys, page);
+                pmm_free_block((void*)phys_addr);
+            }
+        }
+    }
+
+    current_proc->program_break = addr; // Store the unaligned address
+    LOG_INFO("SYSCALL: Process %llu brk changed from 0x%llx to 0x%llx (requested 0x%llx)",
+             current_proc->pid, old_program_break, current_proc->program_break, addr);
+    return 0; // Return 0 on success for non-zero addr
+}
+
+static int64_t sys_read(uint64_t fd, void* buf, size_t count) {
     process_t* proc = proc_get_current();
 
     if (fd >= MAX_FD_PER_PROCESS || proc->file_descriptors[fd].node == NULL) {
-        LOG_ERR("  sys_read: ERROR: Invalid file descriptor %llu.", fd);
         return -1; // EBADF
     }
 
@@ -232,35 +281,26 @@ static int64_t sys_read(uint64_t fd, void* buf, size_t count) {
     // This is much safer than using a fixed-size stack buffer.
     char* kbuf = kmalloc(count);
     if (!kbuf) {
-        LOG_ERR("  sys_read: FAILED to kmalloc kernel buffer of size %zu", count);
         return -1; // ENOMEM
     }
-    LOG_ERR("  sys_read: Allocated kernel buffer of size %zu at 0x%llx", count, (uint64_t)kbuf);
 
     file_desc_t* file = &proc->file_descriptors[fd];
     vfs_node_t* node = file->node;
-    LOG_ERR("  sys_read: Delegating to VFS node: '%s' at offset %llu", node->name, file->offset);
 
     // 1. Read from the file into our temporary kernel buffer
     int64_t bytes_read = node->fops->read(node, file->offset, count, kbuf);
-    LOG_ERR("  sys_read: VFS read returned %ld bytes.", bytes_read);
 
     if (bytes_read > 0) {
         // 2. Copy the data from the kernel buffer to the user's buffer.
-        LOG_ERR("  sys_read: Copying %ld bytes from kernel buffer 0x%llx to user buffer 0x%llx.", bytes_read, (uint64_t)kbuf, (uint64_t)buf);
         memcpy(buf, kbuf, bytes_read);
-        LOG_ERR("  sys_read: memcpy to user buffer complete.");
 
         // 3. Update the file offset
         uint64_t old_offset = file->offset;
         file->offset += bytes_read;
-        LOG_ERR("  sys_read: Updated file offset from %llu to %llu.", old_offset, file->offset);
     }
 
     // 4. Free the temporary kernel buffer
     kfree(kbuf);
-    LOG_ERR("  sys_read: Freed kernel buffer.");
 
-    LOG_ERR("--- sys_read finished, returning %ld ---", bytes_read);
     return bytes_read;
 }

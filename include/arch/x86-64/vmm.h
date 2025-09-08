@@ -51,6 +51,7 @@ bool vmm_map_page(uint64_t virt_addr, uint64_t phys_addr, uint64_t flags);
 bool vmm_map_page_to(uint64_t pml4_phys, uint64_t virt_addr, uint64_t phys_addr, uint64_t flags);
 
 void vmm_unmap_page(uint64_t virt_addr);
+void vmm_unmap_page_from(uint64_t pml4_phys, uint64_t virt_addr);
 
 void* physical_to_virtual(uint64_t physical_addr);
 uint64_t vmm_get_physical_addr(uint64_t virt_addr);

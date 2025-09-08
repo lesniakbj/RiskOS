@@ -83,3 +83,36 @@ int64_t close(uint64_t fd) {
     );
     return status;
 }
+
+int64_t brk(void* addr) {
+    int64_t ret;
+    asm volatile (
+        "syscall"
+        : "=a" (ret)
+        : "a" (SYS_BRK), "D" (addr)
+        : "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+void* sbrk(int64_t increment) {
+    static void* program_break = NULL;
+
+    if (program_break == NULL) {
+        // Initialize program_break by calling brk(0) to get the current break
+        program_break = (void*)brk(0);
+        if ((int64_t)program_break == -1) {
+            return (void*)-1; // brk(0) failed
+        }
+    }
+
+    void* old_program_break = program_break;
+    void* new_program_break = (void*)((uint64_t)program_break + increment);
+
+    if (brk(new_program_break) == -1) {
+        return (void*)-1; // brk failed
+    }
+
+    program_break = new_program_break;
+    return old_program_break;
+}

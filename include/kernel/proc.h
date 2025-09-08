@@ -49,6 +49,8 @@ typedef struct process {
     struct process* parent;     // Pointer to the parent process
     uint64_t exit_code;         // Exit code if the process has exited
     vfs_node_t* working_dir;    // Working dir of this process
+    uint64_t program_break;
+    uint64_t program_break_start;
     
     // File descriptors
     file_desc_t file_descriptors[MAX_FD_PER_PROCESS];

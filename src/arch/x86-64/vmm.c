@@ -156,6 +156,18 @@ uint64_t vmm_get_physical_addr_from(uint64_t pml4_phys, uint64_t virt_addr) {
     return (*pte & PAGE_ADDR_MASK) + (virt_addr & 0xFFF);
 }
 
+void vmm_unmap_page_from(uint64_t pml4_phys, uint64_t virt_addr) {
+    pml4_t* pml4_virt = (pml4_t*)physical_to_virtual(pml4_phys);
+    pt_entry_t* pte = vmm_walk_to_pte_from(pml4_virt, virt_addr, false);
+    if (pte != NULL) {
+        *pte = 0;
+        // Only flush TLB if this is the currently active PML4
+        if (vmm_get_current_pml4() == pml4_phys) {
+            flush_tlb_single(virt_addr);
+        }
+    }
+}
+
 uint64_t vmm_get_physical_addr(uint64_t virt_addr) {
     uint64_t pml4_phys = vmm_get_current_pml4();
     return vmm_get_physical_addr_from(pml4_phys, virt_addr);
