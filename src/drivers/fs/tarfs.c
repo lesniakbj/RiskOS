@@ -218,14 +218,20 @@ static bool tarfs_is_executable(uint8_t* data, int64_t size) {
 }
 
 static int64_t tar_file_read(vfs_node_t *node, uint64_t offset, size_t size, void *buffer) {
+    LOG_ERR("--- tar_file_read ---");
+    LOG_ERR("  node=0x%llx, offset=%llu, size=%zu, buffer=0x%llx", (uint64_t)node, offset, size, (uint64_t)buffer);
+
     if (!node || !node->private_data || !buffer) {
+        LOG_ERR("  tar_file_read: ERROR: Invalid argument (node, private_data, or buffer is NULL).");
         return -1;
     }
 
     tar_file_data_t* tar_data = (tar_file_data_t*)node->private_data;
+    LOG_ERR("  tar_data=0x%llx, tar_data->size=%llu, tar_data->data=0x%llx", (uint64_t)tar_data, tar_data->size, (uint64_t)tar_data->data);
 
     // Check bounds
     if (offset >= tar_data->size) {
+        LOG_ERR("  tar_file_read: Offset is past EOF. Returning 0.");
         return 0; // EOF
     }
 
@@ -233,10 +239,16 @@ static int64_t tar_file_read(vfs_node_t *node, uint64_t offset, size_t size, voi
     size_t actual_size = size;
     if (offset + size > tar_data->size) {
         actual_size = tar_data->size - offset;
+        LOG_ERR("  tar_file_read: Read size truncated to %zu bytes to avoid reading past the end of the file.", actual_size);
     }
+    LOG_ERR("  tar_file_read: actual_size=%zu", actual_size);
 
     // Copy data
+    LOG_ERR("  tar_file_read: Preparing to memcpy to buffer 0x%llx from source 0x%llx", (uint64_t)buffer, (uint64_t)(tar_data->data + offset));
     memcpy(buffer, tar_data->data + offset, actual_size);
+    LOG_ERR("  tar_file_read: memcpy complete.");
+
+    LOG_ERR("  tar_file_read: Returning %ld", actual_size);
     return actual_size;
 }
 

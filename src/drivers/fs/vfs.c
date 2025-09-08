@@ -262,19 +262,19 @@ void print_vfs_tree(vfs_node_t* node, int depth) {
 
     // Special case for root
     if (depth == 0 && strcmp(node->name, "/") == 0) {
-        LOG_DEBUG("VFS: /");
+        LOG_ERR("VFS: /");
     } else if (node->flags & VFS_DIR) {
-        LOG_DEBUG("VFS: %s%s/", indent, node->name);
+        LOG_ERR("VFS: %s%s/", indent, node->name);
     } else {
         if (node->private_data) {
             tar_file_data_t* data = (tar_file_data_t*)node->private_data;
             if (node->flags & VFS_EXEC) {
-                LOG_DEBUG("VFS: %s%s (%lld bytes) [EXEC]", indent, node->name, data->size);
+                LOG_ERR("VFS: %s%s (%lld bytes) [EXEC]", indent, node->name, data->size);
             } else {
-                LOG_DEBUG("VFS: %s%s (%lld bytes)", indent, node->name, data->size);
+                LOG_ERR("VFS: %s%s (%lld bytes)", indent, node->name, data->size);
             }
         } else {
-            LOG_DEBUG("VFS: %s%s", indent, node->name);
+            LOG_ERR("VFS: %s%s", indent, node->name);
         }
     }
 

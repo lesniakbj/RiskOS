@@ -62,6 +62,17 @@ int64_t open(const char* path, uint16_t flags) {
     return fd;
 }
 
+int64_t read(uint64_t fd, void* buf, size_t count) {
+    int64_t bytes_read;
+    asm volatile (
+        "syscall"
+        : "=a" (bytes_read)
+        : "a" (SYS_READ), "D" (fd), "S" (buf), "d" (count)
+        : "rcx", "r11", "memory"
+    );
+    return bytes_read;
+}
+
 int64_t close(uint64_t fd) {
     int64_t status;
     asm volatile (

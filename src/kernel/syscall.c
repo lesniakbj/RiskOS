@@ -1,6 +1,7 @@
 #include <kernel/syscall.h>
 #include <kernel/log.h>
 #include <kernel/proc.h>
+#include <kernel/heap.h>
 #include <drivers/fb_console.h>
 #include <drivers/fs/vfs.h>
 #include <arch/x86-64/vmm.h>
@@ -8,14 +9,17 @@
 #include <libc/unistd.h>
 #include <libc/string.h>
 
-#define USERSPACE_TOP (0x000080000000ULL)
-#define MAX_WRITE_SIZE 256
+#define USERSPACE_TOP (0x7000000000ULL)
+#define MAX_WRITE_SIZE 1024
 
 static int64_t sys_exit_proc(registers_t* regs);
 static int64_t sys_fork_proc(registers_t* parent_regs);
+
+static int64_t sys_read(uint64_t fd, void* buf, size_t count);
 static int64_t sys_write(uint64_t fd, const char* buf, size_t count);
 static int64_t sys_open(const char* path, uint16_t flags);
 static int64_t sys_close(uint64_t fd);
+static int64_t sys_lseek(uint64_t fd, int64_t offset, uint8_t wence);
 
 // Helper to find the next available file descriptor for the current process
 static int get_next_fd() {
@@ -36,7 +40,7 @@ static int copy_from_user(char *kbuf, const char *ubuf, size_t max_len) {
     if ((uint64_t)ubuf >= USERSPACE_TOP) {
         return -1;
     }
-    strncpy(kbuf, ubuf, max_len);
+    memcpy(kbuf, ubuf, max_len);
     return 0;
 }
 
@@ -55,13 +59,15 @@ int64_t syscall_handler(registers_t* regs) {
 
     switch (regs->rax) {
         case SYSCALL_READ:
-            return 0;
+            return sys_read(regs->rdi, (void*)regs->rsi, regs->rdx);
         case SYSCALL_WRITE:
             return sys_write(regs->rdi, (const char*)regs->rsi, regs->rdx);
         case SYSCALL_OPEN:
             return sys_open((const char*)regs->rdi, (uint16_t)regs->rsi);
         case SYSCALL_CLOSE:
             return sys_close(regs->rdi);
+        case SYSCALL_LSEEK:
+            return sys_lseek(regs->rdi, regs->rsi, regs->rdx);
         case SYSCALL_PROC_YIELD:
             proc_scheduler_run(regs);
             return -1;
@@ -89,18 +95,19 @@ static int64_t sys_exit_proc(registers_t* regs) {
 }
 
 static int64_t sys_write(uint64_t fd, const char* buf, size_t count) {
-    LOG_DEBUG("--- sys_write called with fd=%llu ---", fd);
-    LOG_DEBUG("Buf: '%s', Count: %d", buf, count);
+    LOG_ERR("--- sys_write called with fd=%llu ---", fd);
+    LOG_ERR("Buf: '%s', Count: %d", buf, count);
     process_t* p = proc_get_current();
     for (int i = 0; i < MAX_FD_PER_PROCESS; i++) {
         if (p->file_descriptors[i].node != NULL) {
-            LOG_DEBUG("  FD %d: node=0x%llx, name='%s'", i,
+            LOG_ERR("  FD %d: node=0x%llx, name='%s'", i,
                       (uint64_t)p->file_descriptors[i].node,
                       p->file_descriptors[i].node->name);
         }
     }
 
     if (fd >= MAX_FD_PER_PROCESS) {
+        LOG_ERR("sys_write: ERROR: fd %llu is out of bounds (MAX_FD_PER_PROCESS=%d)", fd, MAX_FD_PER_PROCESS);
         return -1;
     }
 
@@ -108,21 +115,27 @@ static int64_t sys_write(uint64_t fd, const char* buf, size_t count) {
     file_desc_t* file = &current_proc->file_descriptors[fd];
 
     if (file->node == NULL) {
+        LOG_ERR("sys_write: ERROR: file->node is NULL for fd %llu", fd);
         return -1;
     }
+    LOG_ERR("sys_write: Passed FD and node checks for fd %llu, node name: '%s'", fd, file->node->name);
 
     char kbuf[MAX_WRITE_SIZE + 1];
     size_t write_count = count > MAX_WRITE_SIZE ? MAX_WRITE_SIZE : count;
+    LOG_ERR("sys_write: Attempting to copy %zu bytes from user buffer to kernel buffer (max %d)", write_count, MAX_WRITE_SIZE);
     if (copy_from_user(kbuf, buf, write_count) != 0) {
+        LOG_ERR("sys_write: ERROR: copy_from_user failed for fd %llu", fd);
         return -2;
     }
     kbuf[write_count] = '\0'; // Ensure null termination for logging/printing
+    LOG_ERR("sys_write: Successfully copied %zu bytes to kernel buffer. Content: '%s'", write_count, kbuf);
 
-    LOG_DEBUG("SYSCALL: Writing to VFS file '%s' '%llu' '%llu' '%s'", file->node->name, file->offset, write_count, kbuf);
+    LOG_ERR("SYSCALL: Writing to VFS file '%s' '%llu' '%llu' '%s'", file->node->name, file->offset, write_count, kbuf);
     int64_t bytes_written = vfs_write(file->node, file->offset, write_count, kbuf);
     if (bytes_written > 0) {
         file->offset += bytes_written;
     }
+    LOG_ERR("sys_write: vfs_write returned %lld bytes written for fd %llu", bytes_written, fd);
 
     return bytes_written;
 }
@@ -172,4 +185,82 @@ static int64_t sys_open(const char* path, uint16_t flags) {
 
     LOG_INFO("Process %d opened \"%s\" as fd %d", current_proc->pid, kpath, fd);
     return fd;
+}
+
+static int64_t sys_lseek(uint64_t fd, int64_t offset, uint8_t wence) {
+    process_t* proc = proc_get_current();
+
+    // TODO: Check with the VFS if this file is seekable, otherwise return an error
+    if(fd < 0 || fd >= MAX_FD_PER_PROCESS || proc->file_descriptors[fd].node == NULL) {
+        return -1;
+    }
+
+    // Update the offset in the file
+    file_desc_t* file = &proc->file_descriptors[fd];
+    uint64_t sz = file->node->length;
+    uint64_t new_off;
+    switch(wence) {
+        case SEEK_SET:
+            new_off = offset;
+            break;
+        case SEEK_CUR:
+            new_off = file->offset + offset;
+            break;
+        case SEEK_END:
+            new_off = sz + offset;
+            break;
+        default:
+            return -2;
+    }
+
+    file->offset = new_off;
+    return new_off;
+}
+
+static int64_t sys_read(uint64_t fd, void* buf, size_t count) {
+    LOG_ERR("--- sys_read started ---");
+    LOG_ERR("  fd=%llu, user_buf=0x%llx, user_count=%zu", fd, (uint64_t)buf, count);
+
+    process_t* proc = proc_get_current();
+
+    if (fd >= MAX_FD_PER_PROCESS || proc->file_descriptors[fd].node == NULL) {
+        LOG_ERR("  sys_read: ERROR: Invalid file descriptor %llu.", fd);
+        return -1; // EBADF
+    }
+
+    // Allocate a temporary buffer from the kernel heap.
+    // This is much safer than using a fixed-size stack buffer.
+    char* kbuf = kmalloc(count);
+    if (!kbuf) {
+        LOG_ERR("  sys_read: FAILED to kmalloc kernel buffer of size %zu", count);
+        return -1; // ENOMEM
+    }
+    LOG_ERR("  sys_read: Allocated kernel buffer of size %zu at 0x%llx", count, (uint64_t)kbuf);
+
+    file_desc_t* file = &proc->file_descriptors[fd];
+    vfs_node_t* node = file->node;
+    LOG_ERR("  sys_read: Delegating to VFS node: '%s' at offset %llu", node->name, file->offset);
+
+    // 1. Read from the file into our temporary kernel buffer
+    int64_t bytes_read = node->fops->read(node, file->offset, count, kbuf);
+    LOG_ERR("  sys_read: VFS read returned %ld bytes.", bytes_read);
+
+    if (bytes_read > 0) {
+        // 2. Copy the data from the kernel buffer to the user's buffer.
+        LOG_ERR("  sys_read: Copying %ld bytes from kernel buffer 0x%llx to user buffer 0x%llx.", bytes_read, (uint64_t)kbuf, (uint64_t)buf);
+        memcpy(buf, kbuf, bytes_read);
+        LOG_ERR("  sys_read: memcpy to user buffer complete.");
+
+        // 3. Update the file offset
+        uint64_t old_offset = file->offset;
+        file->offset += bytes_read;
+        LOG_ERR("  sys_read: Updated file offset from %llu to %llu.", old_offset, file->offset);
+    }
+
+    // 4. Free the temporary kernel buffer
+    kfree(kbuf);
+    LOG_ERR("  sys_read: Freed kernel buffer.");
+
+    LOG_ERR("--- sys_read finished, returning %ld ---", bytes_read);
+    return bytes_read;
 }

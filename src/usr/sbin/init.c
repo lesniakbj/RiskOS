@@ -1,6 +1,7 @@
 #include <libc/unistd.h>
 #include <libc/stdio.h>                                                                                                                                                                                                                          │
 #include <libc/string.h>
+#include <libc/stdlib.h>
 
 static void mux_puts(int64_t fd, const char* str) {
     puts(str);
@@ -19,6 +20,22 @@ int main() {
         mux_puts(fd, "I am the child!");
     } else {
         mux_puts(fd, "I am the parent!");
+    }
+
+    // Lets try to read some bytes from a file...
+    uint64_t linker_fd = open("/init/user.lds", 1);
+    char buf[533];
+    int64_t bytes_read = read(linker_fd, buf, 532);
+    buf[bytes_read] = '\0';
+    mux_puts(fd, "I read the following number of bytes:");
+
+    // Convert bytes_read to a string for printing.
+    char str[21];
+    itoa(bytes_read, str, 10);
+    mux_puts(fd, str);
+
+    if(bytes_read == 532) {
+        mux_puts(fd, "I read 532 bytes! yay!");
     }
 
     for(;;) {

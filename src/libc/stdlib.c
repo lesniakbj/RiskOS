@@ -40,17 +40,30 @@ void utoa(uint64_t value, char* buf, int base) {
 
 // Converts a signed 64-bit integer to a null-terminated string.
 void itoa(int64_t value, char* buf, int base) {
+    // For non-decimal bases, it's simpler to treat the number as unsigned.
     if (base != 10) {
-        // For non-decimal bases, treat as unsigned
         utoa((uint64_t)value, buf, base);
         return;
     }
 
-    int i = 0;
-    if (value < 0) {
-        buf[i++] = '-';
-        value = -value;
+    // Handle the zero case explicitly for clarity.
+    if (value == 0) {
+        buf[0] = '0';
+        buf[1] = '\0';
+        return;
     }
 
-    utoa((uint64_t)value, buf + i, base);
+    uint64_t u_value = (uint64_t)value;
+    int i = 0;
+
+    // Handle negative numbers.
+    if (value < 0) {
+        buf[i++] = '-';
+        // Safely negate the value. Casting to uint64_t handles INT64_MIN correctly.
+        u_value = (uint64_t)-value;
+    }
+
+    // Use utoa to convert the absolute value part.
+    // We pass buf + i to write the number part after the '-' sign if it exists.
+    utoa(u_value, buf + i, base);
 }

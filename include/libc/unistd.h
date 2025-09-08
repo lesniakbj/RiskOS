@@ -15,6 +15,11 @@
 #define SYS_OPEN                2
 #define SYS_CLOSE               3
 
+#define SYS_LSEEK               8
+#define     SEEK_SET            0
+#define     SEEK_CUR            1
+#define     SEEK_END            2
+
 #define SYS_BRK                 12
 
 #define SYS_PROC_YIELD          24
@@ -31,10 +36,12 @@ int64_t pid();
 int64_t brk(void* addr);
 
 // --- VFS File Syscalls ---
+int64_t read(uint64_t fd, void* buf, size_t count);
 int64_t write(uint64_t fd, const char* buf, size_t count);
 int64_t open(const char* path, uint16_t flags);
 int64_t close(uint64_t fd);
 void exit(int64_t status);
+int64_t lseek(uint64_t fd, int64_t offset, uint8_t wence);
 
 
 #endif

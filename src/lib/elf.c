@@ -67,7 +67,7 @@ process_t* elf_load_process(void* file_ptr) {
         void* phys_page = pmm_alloc_block();
         if(phys_page == NULL) {
            LOG_ERR("ELF: Failed to allocate page for new segment mappings");
-           return;
+           return NULL;
         }
         uint64_t vaddr = USER_STACK_TOP - USER_STACK_SIZE + i;
         vmm_map_page_to(proc->pml4_phys, (void*)vaddr, phys_page, PAGE_PRESENT | PAGE_READ_WRITE | PAGE_USER);
