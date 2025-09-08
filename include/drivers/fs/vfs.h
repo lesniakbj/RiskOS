@@ -43,6 +43,7 @@ typedef struct file_system_ops {
     int64_t (*mkdir)(struct vfs_node *parent, const char *name, uint32_t mode);
     int64_t (*rmdir)(struct vfs_node *parent, const char *name);
     struct vfs_node* (*mount)(partition_t* partition, const char* name);
+    struct vfs_node* (*readdir)(struct vfs_node *dir_node, uint32_t index);
 } file_system_ops_t;
 
 typedef struct vfs_node {

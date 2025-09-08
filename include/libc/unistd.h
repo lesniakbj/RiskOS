@@ -4,6 +4,11 @@
 #include <stdint.h>
 #include <stddef.h>
 
+// Standard file descriptors
+#define STDIN_FILENO  0
+#define STDOUT_FILENO 1
+#define STDERR_FILENO 2
+
 // Syscall numbers
 #define SYS_READ                0
 #define SYS_WRITE               1

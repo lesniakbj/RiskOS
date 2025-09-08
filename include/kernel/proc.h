@@ -8,6 +8,7 @@
 #include <arch/x86-64/vmm.h>
 
 #define MAX_PROCESSES 256
+#define MAX_FD_PER_PROCESS 16
 
 // Process states
 typedef enum {
@@ -27,6 +28,13 @@ typedef enum {
     PROC_TYPE_USER          // User process (runs in ring 3)
 } proc_type_t;
 
+// File descriptor structure
+typedef struct file_desc {
+    vfs_node_t* node;       // VFS node this FD points to
+    uint32_t flags;         // Flags (read/write/append, etc.)
+    uint64_t offset;        // Current file offset
+} file_desc_t;
+
 // Process control block
 typedef struct process {
     uint8_t used;               // Is this process slot in use?
@@ -41,6 +49,9 @@ typedef struct process {
     struct process* parent;     // Pointer to the parent process
     uint64_t exit_code;         // Exit code if the process has exited
     vfs_node_t* working_dir;    // Working dir of this process
+    
+    // File descriptors
+    file_desc_t file_descriptors[MAX_FD_PER_PROCESS];
 } process_t;
 
 // --- Process Manager Functions ---

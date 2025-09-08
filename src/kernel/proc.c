@@ -4,6 +4,7 @@
 #include <arch/x86-64/vmm.h>
 #include <libc/string.h> // For memset
 #include <arch/x86-64/gdt.h> // For tss_set_stack
+#include <drivers/fs/vfs.h>
 
 // Symbols from stack.S, defining the bounds of the bootstrap stack.
 extern uint8_t kernel_stack[];
@@ -38,6 +39,13 @@ void proc_init() {
     kernel_proc->parent = NULL;                 // The kernel has no parent.
     kernel_proc->exit_code = 0;
     kernel_proc->working_dir = vfs_root_node();
+
+    // Initialize file descriptors (stdin, stdout, stderr)
+    for (int i = 0; i < MAX_FD_PER_PROCESS; i++) {
+        kernel_proc->file_descriptors[i].node = NULL;
+        kernel_proc->file_descriptors[i].flags = 0;
+        kernel_proc->file_descriptors[i].offset = 0;
+    }
 
     // For x86-64, we need the physical address of the top-level page table (PML4).
     // The kernel process uses the initial page tables set up by the VMM.
@@ -97,14 +105,17 @@ process_t* proc_create(proc_type_t proc_type) {
             new_proc->exit_code = 0;
             new_proc->working_dir = vfs_root_node();
 
+            // Initialize file descriptors
+            for (int j = 0; j < MAX_FD_PER_PROCESS; j++) {
+                new_proc->file_descriptors[j].node = NULL;
+                new_proc->file_descriptors[j].flags = 0;
+                new_proc->file_descriptors[j].offset = 0;
+            }
+
             // Allocate a new kernel stack for this process
             new_proc->kernel_stack_size = 0x4000; // 16KB kernel stack
             new_proc->kernel_stack = kmalloc(new_proc->kernel_stack_size);
-            if (new_proc->kernel_stack == NULL) {
-                LOG_ERR("PROC: Failed to allocate kernel stack for PID %llu", new_proc->pid);
-                new_proc->used = false; // Free the slot
-                return NULL;
-            }
+            SAFE_ALLOCZ(new_proc->kernel_stack, void*, new_proc->kernel_stack_size, "PROC: Failed to allocate kernel stack for PID %llu", new_proc->pid, {new_proc->used = false; return NULL;};);
 
             return new_proc;
         }
@@ -117,6 +128,56 @@ process_t* proc_create(proc_type_t proc_type) {
 void proc_exec(process_t* process) {
     process->state = PROC_STATE_READY;
     return;
+}
+
+// Helper function to set up standard file descriptors for a process
+int proc_setup_std_fds(process_t* proc) {
+    if (proc == NULL) {
+        return -1;
+    }
+
+    // Each standard FD needs its own file description, so we open the device for each one.
+
+    // stdin (FD 0)
+    vfs_node_t* stdin_node = vfs_open("/dev/console");
+    if (stdin_node == NULL) {
+        LOG_ERR("PROC: Failed to open /dev/console for stdin");
+        return -1;
+    }
+    proc->file_descriptors[0].node = stdin_node;
+    proc->file_descriptors[0].flags = 0; // Or your specific read-only flag
+    proc->file_descriptors[0].offset = 0;
+
+    // stdout (FD 1)
+    vfs_node_t* stdout_node = vfs_open("/dev/console");
+    if (stdout_node == NULL) {
+        LOG_ERR("PROC: Failed to open /dev/console for stdout");
+        // Clean up already opened node
+        kfree(stdin_node);
+        proc->file_descriptors[0].node = NULL;
+        return -1;
+    }
+    proc->file_descriptors[1].node = stdout_node;
+    proc->file_descriptors[1].flags = 1; // Or your specific write-only flag
+    proc->file_descriptors[1].offset = 0;
+
+    // stderr (FD 2)
+    vfs_node_t* stderr_node = vfs_open("/dev/console");
+    if (stderr_node == NULL) {
+        LOG_ERR("PROC: Failed to open /dev/console for stderr");
+        // Clean up already opened nodes
+        kfree(stdin_node);
+        kfree(stdout_node);
+        proc->file_descriptors[0].node = NULL;
+        proc->file_descriptors[1].node = NULL;
+        return -1;
+    }
+    proc->file_descriptors[2].node = stderr_node;
+    proc->file_descriptors[2].flags = 1; // Or your specific write-only flag
+    proc->file_descriptors[2].offset = 0;
+
+    LOG_INFO("PROC: Standard file descriptors set up for PID %llu", proc->pid);
+    return 0;
 }
 
 void proc_terminate(process_t* proc) {

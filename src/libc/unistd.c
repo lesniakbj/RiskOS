@@ -41,12 +41,23 @@ int64_t getpid() {
 }
 
 int64_t write(uint64_t fd, const char* buf, size_t count) {
-    int bytes_written;
-    asm volatile(
+    int64_t bytes_written;
+    asm volatile (
         "syscall"
         : "=a" (bytes_written)
-        : "a" (SYS_WRITE), "D" (fd), "S" (buf), "d"(count)
+        : "a" (SYS_WRITE), "D" (fd), "S" (buf), "d" (count)
         : "rcx", "r11", "memory"
     );
     return bytes_written;
+}
+
+int64_t open(const char* path, uint16_t flags) {
+    int fd;
+    asm volatile (
+        "syscall"
+        : "=a" (fd)
+        : "a" (SYS_OPEN), "D" (path), "S" (flags)
+        : "rcx", "r11", "memory"
+    );
+    return fd;
 }

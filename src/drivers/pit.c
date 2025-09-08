@@ -14,6 +14,8 @@ static uint64_t pit_divisor = 0;
 static uint64_t schedule_counter = 0;
 static uint64_t console_clock_counter = 0;
 
+extern volatile uint64_t system_ticks;
+
 int64_t pit_init(uint64_t frequency_hz) {
     // Ensure the requested frequency for the PIT is in bounds
     if (frequency_hz == 0 || frequency_hz > PIT_BASE_FREQUENCY) {
@@ -55,7 +57,7 @@ void pit_handler(registers_t *regs) {
     pit_tick_count++;
 
     // --- System Clock Update Logic ---
-    // TODO: Implement the high res system timer
+    system_ticks++;
 
     // --- Process Scheduler Logic ---
     schedule_counter++;

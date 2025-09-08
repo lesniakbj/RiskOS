@@ -1,4 +1,5 @@
 #include <kernel/heap.h>
+#include <kernel/log.h>
 #include <lib/tar.h>
 #include <libc/string.h>
 #include <lib/octal.h>
@@ -8,15 +9,13 @@ int64_t tar_list(uint8_t *archive_start, tar_header_list_t **out) {
     tar_header_t* header = (tar_header_t *)archive_start;
     tar_header_list_t* list = NULL;
     int64_t count = 0;
+    *out = NULL;
 
     // Iterate through the archive as long as we find valid UStar headers
     while(memcmp(header->magic, "ustar", 5) == 0) {
-        tar_header_list_t* list_item = (tar_header_list_t*)kmalloc(sizeof(tar_header_list_t));
-        if (list_item == NULL) {
-            // TODO: free already allocated list items
-            *out = NULL;
-            return -1;
-        }
+        tar_header_list_t* list_item;
+        SAFE_ALLOC(list_item, tar_header_list_t*, "TAR: Failed to allocated memory for tar header item at: 0x%llx", (uint64_t)list_item, return -1);
+
         memcpy(&list_item->header, header, sizeof(tar_header_t));
         list_item->next = list;
         list = list_item;

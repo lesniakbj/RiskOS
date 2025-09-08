@@ -2,8 +2,13 @@
 #include <kernel/log.h>
 
 // Seconds counter, updated by the RTC interrupt
+volatile uint64_t system_ticks = 0;
 volatile uint64_t g_unix_seconds = 0;
 static bool system_time_initialized = false;
+
+uint64_t system_get_ticks() {
+    return system_ticks;
+}
 
 // Reverses a string 'str' of length 'len'
 static void k_str_reverse(char *str, int len) {

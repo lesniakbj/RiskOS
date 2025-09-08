@@ -18,6 +18,9 @@ typedef struct pci_device {
 } pci_device_t;
 
 void pci_init();
+void pci_bus_scan();
+pci_device_t* pci_get_devices();
+
 uint32_t pci_read_dword(uint16_t bus, uint8_t device, uint8_t function, uint8_t offset);
 
 const char* pci_class_subclass_to_string(uint8_t class_code, uint8_t subclass);

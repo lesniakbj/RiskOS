@@ -4,10 +4,6 @@
 // TODO: Have the log "attach" to a console, that is either freestanding (GUI app) or "attached" to a screen
 #include <drivers/fb_console.h>
 
-#define SERIAL_LOG 1
-#define SCREEN_LOG 1
-#define LOG_CALLER 0
-
 static bool screen_available = false;
 
 static const char* levelNames[] = {
@@ -19,7 +15,7 @@ static const char* levelNames[] = {
 };
 
 static void format_string(char* buffer, size_t buff_size, const char* format, va_list args);
-static void format_string_simple(char* buffer, size_t buff_size, const char* format, ...);
+void format_string_simple(char* buffer, size_t buff_size, const char* format, ...);
 static void vformat_string(char* buffer, size_t buff_size, const char* format, va_list args);
 
 void log_init() {
@@ -223,7 +219,7 @@ static void vformat_string(char* buffer, size_t buff_size, const char* format, v
 }
 
 
-static void format_string_simple(char* buffer, size_t buff_size, const char* format, ...) {
+void format_string_simple(char* buffer, size_t buff_size, const char* format, ...) {
     va_list args;
     va_start(args, format);
     vformat_string(buffer, buff_size, format, args);

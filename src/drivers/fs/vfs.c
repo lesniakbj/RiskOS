@@ -221,6 +221,7 @@ vfs_node_t* vfs_open(const char *path) {
 
 int64_t vfs_write(vfs_node_t *node, uint64_t offset, size_t size, const void *buffer) {
     if (node == NULL || node->fops == NULL || node->fops->write == NULL) {
+        LOG_DEBUG("Unable to write!");
         return -1; // Or some other error code
     }
     LOG_DEBUG("VFS: Writing to %s, message: %s", node->name, buffer);
@@ -266,7 +267,6 @@ void print_vfs_tree(vfs_node_t* node, int depth) {
         LOG_DEBUG("VFS: %s%s/", indent, node->name);
     } else {
         if (node->private_data) {
-            // Check if it's an executable
             tar_file_data_t* data = (tar_file_data_t*)node->private_data;
             if (node->flags & VFS_EXEC) {
                 LOG_DEBUG("VFS: %s%s (%lld bytes) [EXEC]", indent, node->name, data->size);
@@ -278,24 +278,36 @@ void print_vfs_tree(vfs_node_t* node, int depth) {
         }
     }
 
-    // Print all children - both in-memory and from mounted filesystems
-    // First print in-memory children
+    // --- Print Children ---
+
+    // 1. Print in-memory children (for directories like /, or filesystems that pre-build a tree)
     vfs_node_t* child = node->first_child;
     while (child) {
         print_vfs_tree(child, depth + 1);
         child = child->next_sibling;
     }
 
-    // Then, if this is a mount point, print children from the mounted filesystem
+    // 2. If this is a mount point, ask the mounted filesystem for its children
     filesystem_t* mounted_fs = find_mount_point(node);
-    if (mounted_fs && mounted_fs->fs_ops && mounted_fs->fs_ops->lookup) {
-        vfs_node_t* fs_root = get_mounted_fs_root(node);
-        if (fs_root) {
-            // Print the mounted filesystem's children by actually traversing them
-            vfs_node_t* fs_child = fs_root->first_child;
-            while (fs_child) {
-                print_vfs_tree(fs_child, depth + 1);
-                fs_child = fs_child->next_sibling;
+    if (mounted_fs && mounted_fs->fs_ops) {
+        if (mounted_fs->fs_ops->readdir) {
+            // Ideal case: The FS has readdir. Use it.
+            uint32_t index = 0;
+            vfs_node_t* child_node;
+            while ((child_node = mounted_fs->fs_ops->readdir(node, index++)) != NULL) {
+                print_vfs_tree(child_node, depth + 1);
+                // The node from readdir is temporary for listing, so free it.
+                kfree(child_node);
+            }
+        } else {
+            // Fallback for filesystems like tarfs that build an in-memory tree.
+            vfs_node_t* fs_root = get_mounted_fs_root(node);
+            if (fs_root) {
+                vfs_node_t* fs_child = fs_root->first_child;
+                while (fs_child) {
+                    print_vfs_tree(fs_child, depth + 1);
+                    fs_child = fs_child->next_sibling;
+                }
             }
         }
     }

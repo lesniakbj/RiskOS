@@ -13,6 +13,22 @@
 #define MIN_BLOCK_SIZE 128
 #endif
 
+#define _SAFE_ALLOC_BASE(var, type, size, msg, msg_param, fail_action) \
+    do { \
+        var = (type)kmalloc(size); \
+        if (!var) { \
+            LOG_ERR(msg, #msg_param); \
+            fail_action; \
+        } \
+    } while (0)
+
+
+#define SAFE_ALLOC(var, type, msg, msg_param, fail_action) \
+    _SAFE_ALLOC_BASE(var, type, sizeof(*var), msg, msg_param, fail_action)
+
+#define SAFE_ALLOCZ(var, type, size, msg, msg_param, fail_action) \
+    _SAFE_ALLOC_BASE(var, type, size, msg, msg_param, fail_action)
+
 typedef struct heap_block {
     size_t size;                // Size of the block (including this header)
     struct heap_block* next;    // Pointer to the next block

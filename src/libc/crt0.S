@@ -14,6 +14,12 @@ _start:
     xor rbp, rbp
 
     # TODO: Eventually, pop argc, argv, and envp from the stack here
+    # --- GET argc & argv ---
+    # pop rdi        # Pop argc into RDI (1st argument to main)
+    # mov rsi, rsp   # RSP now points to argv[0], so RSI gets argv (2nd argument to main)
+    # --- END GET argc & argv ---
+
+    # TODO: Eventually support envp from the stack here
     # and pass them to main in RDI and RSI. For now, we call main with no args.
     call main
 

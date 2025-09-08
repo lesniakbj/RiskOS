@@ -1,6 +1,7 @@
 #include <drivers/disk.h>
 #include <drivers/fs/fat32.h>
 #include <kernel/log.h>
+#include <kernel/heap.h>
 
 static disk_device_t* disk_devices;
 
@@ -48,7 +49,11 @@ void disk_system_init() {
 
                     LOG_INFO("--> Found Partition %d: Type=0x%x, StartLBA=%d, Size=%d sectors",
                         i + 1, part->type, part->start_logic_addr, part->size_in_sectors);
-                    fat32_mount_partition(&mbr->partitions[i], disk);
+
+                    // TODO: We can't just assume that we have a FAT32 here...
+                    if(new_partition->type == 0x0C) {
+                        fat32_mount_partition(new_partition, disk);
+                    }
                 }
             }
         } else {

@@ -12,25 +12,67 @@ static uint16_t pci_get_device_id(uint8_t bus, uint8_t device, uint8_t function)
 static uint8_t pci_get_class_code(uint8_t bus, uint8_t device, uint8_t function);
 static uint8_t pci_get_subclass(uint8_t bus, uint8_t device, uint8_t function);
 
-static void pci_check_device(uint16_t bus, uint8_t device);
-static void pci_probe_function(uint16_t bus, uint8_t device, uint8_t function);
+static pci_device_t* pci_check_device(uint16_t bus, uint8_t device);
+static pci_device_t* pci_probe_function(uint16_t bus, uint8_t device, uint8_t function);
 static void pci_device_found(pci_device_t* device);
 static uint8_t pci_get_header_type(uint16_t bus, uint8_t device, uint8_t function);
+static void pci_free_devices(pci_device_t* head);
 
 static pci_device_t *devices = NULL;
 static uint32_t num_devices = 0;
 
 void pci_init() {
     LOG_INFO("PCI bus scan...");
+    pci_bus_scan();
+    LOG_INFO("PCI bus scan complete. Found %d devices.", num_devices);
+    // Print detailed information about all discovered devices
+    pci_device_t* current = pci_get_devices();
+    while (current != NULL) {
+        const char* class_str = pci_class_subclass_to_string(current->class_code, current->subclass);
+        LOG_INFO("PCI Device %d:%d:%d - Vendor:0x%x, Device:0x%x, %s",
+            current->bus, current->device, current->function,
+            current->vendor_id, current->device_id, class_str);
+        current = current->next;
+    }
+
+    // TODO: Using ACPI, find RSDP->XSDT, interate XSDT to find MCFG table, == MMIO to devices
+}
+
+void pci_bus_scan() {
+    if (devices != NULL) {
+        pci_free_devices(devices);
+    }
+
+    pci_device_t* master_list = NULL;
+    pci_device_t* current_tail = NULL;
+
     for (uint16_t bus = 0; bus < 256; bus++) {
         for (uint8_t device = 0; device < 32; device++) {
-            pci_check_device(bus, device);
+            pci_device_t* dev_list = pci_check_device(bus, device);
+
+            if (dev_list != NULL) {
+                if (master_list == NULL) {
+                    // Master list is empty, new list becomes the master.
+                    master_list = dev_list;
+                    current_tail = dev_list;
+                } else {
+                    // Master list is not empty, find tail and append.
+                    current_tail->next = dev_list;
+                }
+
+                // Advance the tail pointer to the end of the new list.
+                while (current_tail->next != NULL) {
+                    current_tail = current_tail->next;
+                }
+            }
         }
     }
 
+    devices = master_list;
+}
 
-    LOG_INFO("PCI bus scan complete. Found %d devices.", num_devices);
-    // TODO: Using ACPI, find RSDP->XSDT, interate XSDT to find MCFG table, == MMIO to devices
+pci_device_t* pci_get_devices() {
+    return devices;
 }
 
 const char* pci_class_subclass_to_string(uint8_t class_code, uint8_t subclass) {
@@ -171,16 +213,31 @@ const char* pci_class_subclass_to_string(uint8_t class_code, uint8_t subclass) {
     }
 }
 
+// Function to free all nodes in a linked list.
+static void pci_free_devices(pci_device_t* head) {
+    pci_device_t* current = head;
+    pci_device_t* next_node;
+
+    while (current != NULL) {
+        next_node = current->next;
+        kfree(current);
+        current = next_node;
+    }
+}
+
+
 // Checks a specific bus/device slot for functions.
-static void pci_check_device(uint16_t bus, uint8_t device) {
+static pci_device_t* pci_check_device(uint16_t bus, uint8_t device) {
+    pci_device_t* dev_list = NULL;
+
     // First check function 0
     uint32_t vendor_device = pci_read_dword(bus, device, 0, 0x00);
     if ((vendor_device & 0xFFFF) == 0xFFFF) {
-        return;
+        return NULL;
     }
 
     // Probe the function since it exists...
-    pci_probe_function(bus, device, 0);
+    dev_list = pci_probe_function(bus, device, 0);
 
     // Check if it's a multi-function device.
     // The header type is at offset 0x0E. Bit 7 is the multi-function flag.
@@ -190,21 +247,30 @@ static void pci_check_device(uint16_t bus, uint8_t device) {
         for (uint8_t function = 1; function < 8; function++) {
             vendor_device = pci_read_dword(bus, device, function, 0x00);
             if ((vendor_device & 0xFFFF) != 0xFFFF) {
-                pci_probe_function(bus, device, function);
+                pci_device_t* new_device = pci_probe_function(bus, device, function);
+                // Link the new device to the list
+                if (new_device != NULL) {
+                    new_device->next = dev_list;
+                    dev_list = new_device;
+                }
             }
         }
     }
+
+    return dev_list;
 }
 
-static void pci_probe_function(uint16_t bus, uint8_t device, uint8_t function) {
-    // If we don't have any devices yet, create the first one, otherwise allocate a new one and add it to our list.
-    pci_device_t* new_device = (pci_device_t*)kmalloc(sizeof(pci_device_t));
-    if (new_device == NULL) {
-        LOG_ERR("PCI: Failed to allocate memory for device node!");
-        return;
-    }
+static pci_device_t* pci_probe_function(uint16_t bus, uint8_t device, uint8_t function) {
+     uint32_t vendor_device = pci_read_dword(bus, device, function, 0x00);
+     // Check if device exists
+     if ((vendor_device & 0xFFFF) == 0xFFFF) {
+         return NULL;
+     }
 
-    uint32_t vendor_device = pci_read_dword(bus, device, function, 0x00);
+    // If we don't have any devices yet, create the first one, otherwise allocate a new one and add it to our list.
+    pci_device_t* new_device;
+    SAFE_ALLOC(new_device, pci_device_t*, "PCI: Failed to allocate memory for device node!", NULL, return NULL);
+
     uint32_t class_rev = pci_read_dword(bus, device, function, 0x08);
 
     new_device->bus         = bus;
@@ -216,13 +282,12 @@ static void pci_probe_function(uint16_t bus, uint8_t device, uint8_t function) {
     new_device->subclass    = (class_rev >> 16) & 0xFF;
     new_device->prog_if     = (class_rev >> 8) & 0xFF;
     new_device->revision    = class_rev & 0xFF;
+    new_device->next        = NULL;
 
     // Link to the head of the device list
-    new_device->next = devices;
-    devices = new_device;
-
-    pci_device_found(new_device);
+    // pci_device_found(new_device); // TODO: Move this, as dispatching to drivers happens later in devdisc...
     num_devices++;
+    return new_device;
 }
 
 // Dispatches the device to the correct subsystem (SATA, IDE, etc)

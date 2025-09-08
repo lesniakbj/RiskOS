@@ -39,7 +39,7 @@ static uint32_t color_to_uint(color_t color) {
 int64_t fb_console_write(vfs_node_t *node, uint64_t offset, size_t size, const void *buffer) {
     LOG_INFO("Console write called from a file context!");
     LOG_INFO("Buffer is %s", buffer);
-    // (void)node; // We don't need the node for this simple driver
+    (void)node; // We don't need the node for this simple driver
     framebuffer_writestring(buffer);
     return size;
 }

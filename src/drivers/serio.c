@@ -1,8 +1,11 @@
 #include <drivers/serio.h>
 #include <drivers/fs/devfs.h>
+#include <kernel/log.h>
 #include <arch/x86-64/io.h>
 
 int64_t serial_vfs_write(vfs_node_t *node, uint64_t offset, size_t size, const void *buffer) {
+    LOG_DEBUG("Serial COM1 write called from user context!");
+    LOG_DEBUG("Buffer is %s", buffer);
     (void)node;
     (void)offset;
     serial_writestring(SERIAL_COM1, buffer);
@@ -10,6 +13,8 @@ int64_t serial_vfs_write(vfs_node_t *node, uint64_t offset, size_t size, const v
 }
 
 int64_t serial2_vfs_write(vfs_node_t *node, uint64_t offset, size_t size, const void *buffer) {
+    LOG_DEBUG("Serial COM2 write called from user context!");
+    LOG_DEBUG("Buffer is %s", buffer);
     (void)node;
     (void)offset;
     serial_writestring(SERIAL_COM2, buffer);

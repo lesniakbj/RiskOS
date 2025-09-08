@@ -97,7 +97,7 @@ syscall_entry:
     mov rdx, [rsp + REGS_RDX]
     mov rcx, [rsp + REGS_RCX]           # User RIP
     mov rbx, [rsp + REGS_RBX]
-    mov rax, [rsp + REGS_RAX]           # Return value (could be modified by handler)
+    # rax now holds the return value from the syscall handler
 
     # Clean up the stack
     add rsp, REGS_SIZE
