@@ -1,5 +1,17 @@
 #include <libc/unistd.h>
 
+typedef struct file_stats {
+    uint64_t device_id;
+    uint64_t inode;
+    uint32_t mode;
+    uint32_t num_links;
+    uint64_t size_bytes;
+    uint64_t num_blocks;
+    uint64_t access_time;
+    uint64_t modified_time;
+    uint64_t create_time;
+} file_stats_t;
+
 void yield() {
     _SYSCALL0_NO_RET(SYS_PROC_YIELD);
 }
@@ -34,6 +46,10 @@ int64_t read(uint64_t fd, void* buf, size_t count) {
 
 int64_t close(uint64_t fd) {
     return _SYSCALL1(SYS_CLOSE, fd);
+}
+
+int64_t stat(const char* pathname, file_stats_t* buf) {
+    return _SYSCALL2(SYS_STAT, pathname, buf);
 }
 
 int64_t brk(void* addr) {

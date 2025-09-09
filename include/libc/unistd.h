@@ -15,6 +15,10 @@
 #define SYS_OPEN                2
 #define SYS_CLOSE               3
 
+#define SYS_STAT                4
+#define SYS_FSTAT               5
+#define SYS_LSTAT               6
+
 #define SYS_LSEEK               8
 #define     SEEK_SET            0
 #define     SEEK_CUR            1
@@ -119,6 +123,11 @@
         ); \
         ret; \
     })
+
+
+
+// TODO Add sys/stat.h header
+
 
 // --- Process Syscalls ---
 void yield();

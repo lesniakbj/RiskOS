@@ -26,12 +26,20 @@ static int fd_print_string(int fd, const char* s) {
     return write(fd, s, strlen(s));
 }
 
-// Core helper to print a number to a specific file descriptor
-static int fd_print_num(int fd, int64_t n, int base) {
+// Core helper to print a signed number to a specific file descriptor
+static int fd_print_signed_num(int fd, int64_t n, int base) {
     char buf[21];
     itoa(n, buf, base);
     return fd_print_string(fd, buf);
 }
+
+// Core helper to print an unsigned number to a specific file descriptor
+static int fd_print_unsigned_num(int fd, uint64_t n, int base) {
+    char buf[21]; // Max for uint64_t in base 10 is 20 chars + null
+    utoa(n, buf, base);
+    return fd_print_string(fd, buf);
+}
+
 
 // The core implementation that all other printf functions will use.
 int vdprintf(int fd, const char *format, va_list args) {
@@ -48,10 +56,29 @@ int vdprintf(int fd, const char *format, va_list args) {
 
         p++; // Move past the '%'
 
+        // Handle length modifiers
+        int long_flag = 0; // 0: none, 1: l, 2: ll
+        if (*p == 'l') {
+            p++;
+            if (*p == 'l') {
+                long_flag = 2; // 'll'
+                p++;
+            } else {
+                long_flag = 1; // 'l'
+            }
+        }
+
         switch (*p) {
             case 'd': {
-                int64_t val = va_arg(args, int64_t);
-                count += fd_print_num(fd, val, 10);
+                int64_t val;
+                if (long_flag == 2) { // 'lld'
+                    val = va_arg(args, long long);
+                } else if (long_flag == 1) { // 'ld'
+                    val = va_arg(args, long);
+                } else { // 'd'
+                    val = va_arg(args, int);
+                }
+                count += fd_print_signed_num(fd, val, 10);
                 break;
             }
             case 's': {
@@ -60,13 +87,27 @@ int vdprintf(int fd, const char *format, va_list args) {
                 break;
             }
             case 'x': {
-                uint64_t val = va_arg(args, uint64_t);
-                count += fd_print_num(fd, val, 16);
+                uint64_t val;
+                if (long_flag == 2) { // 'llx'
+                    val = va_arg(args, unsigned long long);
+                } else if (long_flag == 1) { // 'lx'
+                    val = va_arg(args, unsigned long);
+                } else { // 'x'
+                    val = va_arg(args, unsigned int);
+                }
+                count += fd_print_unsigned_num(fd, val, 16);
                 break;
             }
             case 'u': {
-                uint64_t val = va_arg(args, uint64_t);
-                count += fd_print_num(fd, val, 10);
+                uint64_t val;
+                if (long_flag == 2) { // 'llu'
+                    val = va_arg(args, unsigned long long);
+                } else if (long_flag == 1) { // 'lu'
+                    val = va_arg(args, unsigned long);
+                } else { // 'u'
+                    val = va_arg(args, unsigned int);
+                }
+                count += fd_print_unsigned_num(fd, val, 10);
                 break;
             }
             case 'c': { // Handle single character
@@ -81,7 +122,7 @@ int vdprintf(int fd, const char *format, va_list args) {
                 break;
             }
             case 'p': {
-                uint64_t val = va_arg(args, uint64_t);
+                uint64_t val = va_arg(args, uint64_t); // Pointers are always uint64_t
                 fd_print_string(fd, "0x");
                 count += 2;
                 // Print pointer value as hex

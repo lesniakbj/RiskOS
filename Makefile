@@ -95,7 +95,7 @@ qemu: all
 	qemu-system-x86_64 -m 8G \
 	-cdrom .build/risk-os.iso -boot d \
 	-serial stdio -hda .build/test_fat32.img \
-	-d int -D qemu.log
+	# -d int -D qemu.log
 
 qemu-usb: all
 	qemu-system-x86_64 -m 8G \

@@ -34,6 +34,7 @@ static int64_t sys_yield(registers_t* regs);
 static int64_t sys_getpid(registers_t* regs);
 static int64_t sys_waitid(registers_t* regs);
 static int64_t sys_exec(registers_t* regs);
+static int64_t sys_stat(registers_t* regs);
 
 // Syscall table
 static syscall_func_t syscall_table[MAX_SYSCALLS] = {
@@ -41,6 +42,7 @@ static syscall_func_t syscall_table[MAX_SYSCALLS] = {
     [SYS_WRITE]         = sys_write,
     [SYS_OPEN]          = sys_open,
     [SYS_CLOSE]         = sys_close,
+    [SYS_STAT]          = sys_stat,
     [SYS_LSEEK]         = sys_lseek,
     [SYS_BRK]           = sys_brk,
     [SYS_PROC_YIELD]    = sys_yield,
@@ -48,7 +50,7 @@ static syscall_func_t syscall_table[MAX_SYSCALLS] = {
     [SYS_PROC_PID]      = sys_getpid,
     [SYS_PROC_FORK]     = sys_fork,
     [SYS_WAITID]        = sys_waitid,
-    [SYSCALL_EXEC]      = sys_exec,
+    [SYS_EXEC]          = sys_exec,
 };
 
 
@@ -76,17 +78,6 @@ static int copy_from_user(char *kbuf, const char *ubuf, size_t max_len) {
 
 
 int64_t syscall_handler(registers_t* regs) {
-    LOG_DEBUG("  SYSCALL REGS:");
-    LOG_DEBUG("  Interrupt: 0x%llx, Error Code: 0x%llx", regs->interrupt_number, regs->error_code);
-    LOG_DEBUG("  CS:  0x%llx, RIP: 0x%llx, RFLAGS: 0x%llx", regs->cs, regs->rip, regs->rflags);
-    LOG_DEBUG("  SS:  0x%llx, RSP: 0x%llx", regs->ss, regs->user_rsp);
-    LOG_DEBUG("  RAX: 0x%llx, RBX: 0x%llx, RCX: 0x%llx", regs->rax, regs->rbx, regs->rcx);
-    LOG_DEBUG("  RDX: 0x%llx, RSI: 0x%llx, RDI: 0x%llx", regs->rdx, regs->rsi, regs->rdi);
-    LOG_DEBUG("  RBP: 0x%llx, R8:  0x%llx, R9:  0x%llx", regs->rbp, regs->r8, regs->r9);
-    LOG_DEBUG("  R10: 0x%llx, R11: 0x%llx, R12: 0x%llx", regs->r10, regs->r11, regs->r12);
-    LOG_DEBUG("  R13: 0x%llx, R14: 0x%llx, R15: 0x%llx", regs->r13, regs->r14, regs->r15);
-    LOG_DEBUG("  FS:  0x%llx, GS:  0x%llx", regs->fs, regs->gs);
-
     uint64_t syscall_num = regs->rax;
 
     if (syscall_num >= MAX_SYSCALLS || syscall_table[syscall_num] == NULL) {
@@ -100,7 +91,6 @@ int64_t syscall_handler(registers_t* regs) {
 static int64_t sys_exit(registers_t* regs) {
     int64_t exit_code = regs->rdi;
     process_t* current = proc_get_current();
-    LOG_INFO("Process %d exiting with code %d", current->pid, exit_code);
 
     // Turn the process into a zombie and wake the parent.
     proc_free(current, exit_code);
@@ -147,7 +137,6 @@ static int64_t sys_write(registers_t* regs) {
     return bytes_written;
 }
 
-
 static int64_t sys_close(registers_t* regs) {
     uint64_t fd = regs->rdi;
 
@@ -164,9 +153,33 @@ static int64_t sys_close(registers_t* regs) {
     return 0;
 }
 
-static int64_t sys_fork(registers_t* parent_regs) {
-    LOG_DEBUG("Forking!");
+static int64_t sys_stat(registers_t* regs) {
+    char* filepath = (char*)regs->rdi;
+    file_stats_t* buf = (file_stats_t*)regs->rsi;
 
+    char kpath[256];
+    if (copy_from_user(kpath, filepath, sizeof(kpath)) != 0) {
+        return -2;
+    }
+
+    vfs_node_t* node = vfs_open(kpath);
+    if (node == NULL) {
+        return -3;
+    }
+
+    file_stats_t file_stats;
+    if (node->fops && node->fops->stat) {
+        if (node->fops->stat(node, &file_stats) != 0) {
+            LOG_ERR("sys_exec: Failed to get file stats for '%s'", kpath);
+            return -5; // EIO
+        }
+    }
+
+    memcpy(buf, &file_stats, sizeof(file_stats_t));
+    return 0;
+}
+
+static int64_t sys_fork(registers_t* parent_regs) {
     // Create a new child process of this current process..
     process_t* parent = proc_get_current();
     process_t* child = proc_create(parent->type);
@@ -179,7 +192,7 @@ static int64_t sys_fork(registers_t* parent_regs) {
     child->pml4_phys = vmm_create_address_space();
     if (child->pml4_phys == 0) {
         LOG_ERR("SYSCALL: Failed to create new address space for child.");
-        proc_free(child);
+        proc_free(child, -1);
         return -1;
     }
 
@@ -291,8 +304,6 @@ static int64_t sys_open(registers_t* regs) {
     current_proc->file_descriptors[fd].node = node;
     current_proc->file_descriptors[fd].offset = 0;
     current_proc->file_descriptors[fd].flags = flags;
-
-    LOG_INFO("Process %d opened \"%s\" as fd %d", current_proc->pid, kpath, fd);
     return fd;
 }
 
@@ -383,8 +394,6 @@ static int64_t sys_brk(registers_t* regs) {
     }
 
     current_proc->program_break = addr; // Store the unaligned address
-    LOG_INFO("SYSCALL: Process %llu brk changed from 0x%llx to 0x%llx (requested 0x%llx)",
-             current_proc->pid, old_program_break, current_proc->program_break, addr);
     return 0; // Return 0 on success for non-zero addr
 }
 
@@ -434,8 +443,6 @@ static int64_t sys_waitid(registers_t* regs) {
     uint64_t id = regs->rsi;
     void* info = (void*)regs->rdx;
     int options = regs->r10;
-    // LOG_ERR("--- sys_waitid ENTER ---");
-    // LOG_ERR("  idtype=%llu, id=%llu, info=0x%llx, options=%d", idtype, id, (uint64_t)info, options);
 
     if(idtype != 0) { // Corresponds to P_PID
         LOG_ERR("  Unsupported idtype: %llu. Only P_PID (0) is supported.", idtype);
@@ -443,34 +450,25 @@ static int64_t sys_waitid(registers_t* regs) {
     }
 
     process_t* parent = proc_get_current();
-//    LOG_ERR("  Parent PID %llu is waiting.", parent->pid);
-
     for (;;) {
-//        LOG_ERR("  [%d] Scanning for zombie child...", parent->pid);
         process_t* child_to_reap = find_zombie_child(parent->pid, id);
 
         if (child_to_reap != NULL) {
-//            LOG_ERR("  [%d] Found zombie child %d to reap.", parent->pid, child_to_reap->pid);
-
             // TODO: Copy exit information to the user-space `info` struct.
 
             uint64_t child_pid = child_to_reap->pid;
             proc_free(child_to_reap, child_to_reap->exit_code); // proc_free should turn it into a zombie
-            LOG_ERR("--- sys_waitid EXIT (reaped child %llu) ---", child_pid);
             return child_pid;
         }
 
-//        LOG_ERR("  [%d] No zombie child found.", parent->pid);
-        if (options & 1) { // WNOHANG is typically 1
+        if (options & WNOHANG) {
             LOG_ERR("  WNOHANG option is set, returning 0.");
             LOG_ERR("--- sys_waitid EXIT (WNOHANG) ---");
             return 0;
         }
 
         parent->state = PROC_STATE_BLOCKED;
-//        LOG_ERR("  [%d] Blocking self and calling scheduler.", parent->pid);
         proc_scheduler_run(regs);
-//        LOG_ERR("  [%d] Woken up from scheduler.", parent->pid);
     }
 }
 

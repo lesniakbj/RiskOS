@@ -4,6 +4,7 @@
 #include <lib/tar.h>
 #include <lib/elf.h> // Used to determine if files are executables
 #include <libc/string.h>
+#include <lib/octal.h>
 
 static int64_t tar_file_read(vfs_node_t *node, uint64_t offset, size_t size, void *buffer);
 static int64_t tar_file_write(vfs_node_t *node, uint64_t offset, size_t size, const void *buffer);
@@ -14,8 +15,8 @@ static int64_t tar_file_stat(vfs_node_t *node, file_stats_t *stats);
 static vfs_node_t* tar_system_lookup(vfs_node_t *parent, const char *name);
 static vfs_node_t* tar_system_mount(partition_t* partition, const char* name);
 
-static vfs_node_t* tarfs_create_node(vfs_node_t* parent, const char* name, uint8_t type, uint8_t* data, int64_t size);
-static vfs_node_t* tarfs_create_path(vfs_node_t* root, const char* path, uint8_t type, uint8_t* data, int64_t size);
+static vfs_node_t* tarfs_create_node(vfs_node_t* parent, const char* name, uint8_t type, uint8_t* data, int64_t size, uint32_t mode, uint64_t last_modified);
+static vfs_node_t* tarfs_create_path(vfs_node_t* root, const char* path, uint8_t type, uint8_t* data, int64_t size, uint32_t mode, uint64_t last_modified);
 static bool tarfs_is_executable(uint8_t* data, int64_t size);
 static void tarfs_print_tree(vfs_node_t* node, int depth);
 
@@ -41,7 +42,7 @@ void tarfs_init(struct limine_file* init_tar, const char* root_name) {
     LOG_DEBUG("TARFS: Found %lld files in initramfs", files);
 
     // Create the root VFS node
-    tar_root = tarfs_create_node(NULL, root_name, TAR_DIRECTORY, NULL, 0);
+    tar_root = tarfs_create_node(NULL, root_name, TAR_DIRECTORY, NULL, 0, 0, 0);
     LOG_DEBUG("TARFS: tar_root after creation: 0x%llx", (uint64_t)tar_root);
     if(!tar_root) {
         LOG_ERR("TARFS: Failed to create TAR root node");
@@ -64,7 +65,11 @@ void tarfs_init(struct limine_file* init_tar, const char* root_name) {
                 dir_name[len - 1] = '\0';
             }
             
-            tarfs_create_path(tar_root, dir_name, TAR_DIRECTORY, NULL, 0);
+            // Convert mode and last_modified from octal strings
+            uint32_t mode = (uint32_t)octal_to_uint64(head.mode, sizeof(head.mode));
+            uint64_t last_modified = octal_to_uint64(head.last_modified, sizeof(head.last_modified));
+
+            tarfs_create_path(tar_root, dir_name, TAR_DIRECTORY, NULL, 0, mode, last_modified);
         }
         cur = cur->next;
     }
@@ -78,7 +83,11 @@ void tarfs_init(struct limine_file* init_tar, const char* root_name) {
             uint8_t* file_data = NULL;
             int64_t file_size = tar_lookup(init_tar->address, head.filename, &file_data);
             
-            tarfs_create_path(tar_root, head.filename, TAR_NORMAL_FILE, file_data, file_size);
+            // Convert mode and last_modified from octal strings
+            uint32_t mode = (uint32_t)octal_to_uint64(head.mode, sizeof(head.mode));
+            uint64_t last_modified = octal_to_uint64(head.last_modified, sizeof(head.last_modified));
+
+            tarfs_create_path(tar_root, head.filename, TAR_NORMAL_FILE, file_data, file_size, mode, last_modified);
         }
         cur = cur->next;
     }
@@ -94,7 +103,7 @@ void tarfs_init(struct limine_file* init_tar, const char* root_name) {
     LOG_DEBUG("TARFS: Root: 0x%llx", (uint64_t)tar_root);
 }
 
-static vfs_node_t* tarfs_create_path(vfs_node_t* root, const char* path, uint8_t type, uint8_t* data, int64_t size) {
+static vfs_node_t* tarfs_create_path(vfs_node_t* root, const char* path, uint8_t type, uint8_t* data, int64_t size, uint32_t mode, uint64_t last_modified) {
     // Handle absolute paths by skipping leading slash
     const char* current_path = path;
     if (path[0] == '/') {
@@ -159,8 +168,10 @@ static vfs_node_t* tarfs_create_path(vfs_node_t* root, const char* path, uint8_t
             uint8_t node_type = is_last_component ? type : TAR_DIRECTORY;
             uint8_t* node_data = is_last_component ? data : NULL;
             int64_t node_size = is_last_component ? size : 0;
+            uint32_t node_mode = is_last_component ? mode : 0; // Pass mode
+            uint64_t node_last_modified = is_last_component ? last_modified : 0; // Pass last_modified
             
-            child = tarfs_create_node(current_node, component, node_type, node_data, node_size);
+            child = tarfs_create_node(current_node, component, node_type, node_data, node_size, node_mode, node_last_modified);
             if (!child) {
                 return NULL;
             }
@@ -218,17 +229,12 @@ static bool tarfs_is_executable(uint8_t* data, int64_t size) {
 }
 
 static int64_t tar_file_read(vfs_node_t *node, uint64_t offset, size_t size, void *buffer) {
-    LOG_ERR("--- tar_file_read ---");
-    LOG_ERR("  node=0x%llx, offset=%llu, size=%zu, buffer=0x%llx", (uint64_t)node, offset, size, (uint64_t)buffer);
-
     if (!node || !node->private_data || !buffer) {
         LOG_ERR("  tar_file_read: ERROR: Invalid argument (node, private_data, or buffer is NULL).");
         return -1;
     }
 
     tar_file_data_t* tar_data = (tar_file_data_t*)node->private_data;
-    LOG_ERR("  tar_data=0x%llx, tar_data->size=%llu, tar_data->data=0x%llx", (uint64_t)tar_data, tar_data->size, (uint64_t)tar_data->data);
-
     // Check bounds
     if (offset >= tar_data->size) {
         LOG_ERR("  tar_file_read: Offset is past EOF. Returning 0.");
@@ -241,14 +247,9 @@ static int64_t tar_file_read(vfs_node_t *node, uint64_t offset, size_t size, voi
         actual_size = tar_data->size - offset;
         LOG_ERR("  tar_file_read: Read size truncated to %zu bytes to avoid reading past the end of the file.", actual_size);
     }
-    LOG_ERR("  tar_file_read: actual_size=%zu", actual_size);
 
     // Copy data
-    LOG_ERR("  tar_file_read: Preparing to memcpy to buffer 0x%llx from source 0x%llx", (uint64_t)buffer, (uint64_t)(tar_data->data + offset));
     memcpy(buffer, tar_data->data + offset, actual_size);
-    LOG_ERR("  tar_file_read: memcpy complete.");
-
-    LOG_ERR("  tar_file_read: Returning %ld", actual_size);
     return actual_size;
 }
 
@@ -280,13 +281,21 @@ static int64_t tar_file_stat(vfs_node_t *node, file_stats_t *stats) {
     tar_file_data_t* tar_data = (tar_file_data_t*)node->private_data;
 
     memset(stats, 0, sizeof(file_stats_t));
+
+    stats->device_id = 0;                               // No specific device ID for tarfs files
+    stats->inode = 0;                                   // Tar doesn't have traditional inodes, can be a unique ID or 0
+    stats->mode = tar_data->mode;                       // Permissions from tar header
+    stats->num_links = 1;                               // Most files in tar are not hard-linked
     stats->size_bytes = tar_data->size;
-    stats->mode = node->flags;
+    stats->num_blocks = (tar_data->size + 511) / 512;   // Assuming 512-byte blocks
+    stats->access_time = tar_data->last_modified;       // Use last_modified for access time
+    stats->modified_time = tar_data->last_modified;     // Last modified time from tar header
+    stats->create_time = tar_data->last_modified;       // Use last_modified for creation time
 
     return 0;
 }
 
-static vfs_node_t* tarfs_create_node(vfs_node_t* parent, const char* name, uint8_t type, uint8_t* data, int64_t size) {
+static vfs_node_t* tarfs_create_node(vfs_node_t* parent, const char* name, uint8_t type, uint8_t* data, int64_t size, uint32_t mode, uint64_t last_modified) {
     vfs_node_t* node = kmalloc(sizeof(vfs_node_t));
     if (!node) return NULL;
 
@@ -312,6 +321,8 @@ static vfs_node_t* tarfs_create_node(vfs_node_t* parent, const char* name, uint8
                 if(tar_data->is_exec) {
                     node->flags = node->flags | VFS_EXEC;
                 }
+                tar_data->mode = mode; // Store mode
+                tar_data->last_modified = last_modified; // Store last_modified
 
                 node->private_data = tar_data;
                 node->fops = &tar_file_ops;

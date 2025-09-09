@@ -74,6 +74,8 @@ process_t* proc_create(proc_type_t proc_type);
 // Execute a process (set its state to READY).
 void proc_make_ready(process_t* process);
 void proc_terminate(process_t* proc);
+void proc_free(process_t* proc, int64_t exit_code);
+void proc_wakeup(uint64_t pid);
 
 // Run the process scheduler. This will switch to the next runnable process.
 void proc_scheduler_run(registers_t *regs);
