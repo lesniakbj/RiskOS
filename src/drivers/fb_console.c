@@ -23,6 +23,8 @@ static int32_t scrollback_head = 0;
 static int32_t scrollback_tail = 0;
 static int32_t scroll_offset = 0;
 
+static void framebuffer_scroll_up();
+
 static color_t uint_to_color(uint32_t color_val) {
     color_t color;
     color.a = (color_val >> 24) & 0xFF;
@@ -94,45 +96,56 @@ void framebuffer_writestring(const char* data) {
 void framebuffer_putchar(char c) {
     // Ensure we have a valid framebuffer before we attempt to draw a character
     if (display_buffer->address) {
-        // Advance to a new line if we have a newline character, keep circular scrollback buffer in bounds
+        // Handle newlines and line wrapping
         if (c == '\n') {
             cursor_x = 0;
             cursor_y += FONT_HEIGHT;
             is_new_line = true;
-            scrollback_head = (scrollback_head + 1) % SCROLLBACK_BUFFER_SIZE;
-            if (scrollback_head == scrollback_tail) {
-                scrollback_tail = (scrollback_tail + 1) % SCROLLBACK_BUFFER_SIZE;
-            }
-            memset(scrollback_buffer[scrollback_head], 0, 256);
-            return;
-        }
-
-        // Handle tab characters ensuring we are tabbing to tab stops
-        if (c == '\t') {
-            // Calculate how many pixels to advance, snap cursor_x to the next tab stop
+            // TODO: Add character to scrollback buffer
+        } else if (c == '\t') {
+            // Handle tab characters ensuring we are tabbing to tab stops
             int32_t tab_stop_pixels = TAB_WIDTH * FONT_WIDTH;
             cursor_x = ((cursor_x / tab_stop_pixels) + 1) * tab_stop_pixels;
-
-            // Handle line wrap if the tab pushes the cursor past the screen width
-            if (cursor_x >= display_buffer->width) {
-                cursor_x = 0;
-                cursor_y += FONT_HEIGHT;
-                is_new_line = true;
-            }
-            return;
+        } else {
+            // Draw the character
+            draw_char(c, cursor_x, cursor_y, current_color);
+            cursor_x += FONT_WIDTH;
         }
 
-        // ... otherwise handle the drawing of this character
-        draw_char(c, cursor_x, cursor_y, current_color);
-        cursor_x += FONT_WIDTH;
-
-        // Handle line wrap if the tab pushes the cursor past the screen width
+        // Handle line wrap if the cursor goes past the screen width
         if (cursor_x >= display_buffer->width) {
             cursor_x = 0;
             cursor_y += FONT_HEIGHT;
             is_new_line = true;
         }
+
+        // Handle scrolling if cursor_y goes past the screen height
+        if (cursor_y >= display_buffer->height) {
+            framebuffer_scroll_up();
+            cursor_y = display_buffer->height - FONT_HEIGHT; // Reset cursor_y to the last line
+        }
     }
+}
+
+// Scrolls the framebuffer content up by one line (FONT_HEIGHT pixels).
+static void framebuffer_scroll_up() {
+    uint32_t bytes_per_row = display_buffer->pitch;
+    uint32_t scroll_amount_bytes = FONT_HEIGHT * bytes_per_row;
+    uint32_t total_display_bytes = display_buffer->height * bytes_per_row;
+
+    // Move content up: copy from (FONT_HEIGHT) to (height - FONT_HEIGHT)
+    memcpy(
+        (void*)display_buffer->address, // Destination: top of the screen
+        (void*)((uintptr_t)display_buffer->address + scroll_amount_bytes), // Source: one line down
+        total_display_bytes - scroll_amount_bytes // Amount to copy
+    );
+
+    // Clear the last line
+    memset(
+        (void*)((uintptr_t)display_buffer->address + total_display_bytes - scroll_amount_bytes), // Start of the last line
+        0, // Fill with black (assuming 0 is black)
+        scroll_amount_bytes // Size of one line
+    );
 }
 
 void draw_char(char c, uint32_t x, uint32_t y, color_t color_val) {
