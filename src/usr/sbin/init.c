@@ -206,7 +206,7 @@ int main(int argc, char** argv, char** envp) {
     
     test_write();
     //test_fork_bomb();
-    //test_concurrent_forks();
+    test_concurrent_forks();
     int64_t fork_pid = test_fork();
     // test_read();
 
@@ -220,8 +220,14 @@ int main(int argc, char** argv, char** envp) {
         mux_printf("%d\n", pid);
         char* cat_argv[] = {"/init/sbin/cat", NULL};
         char* cat_envp[] = {"PATH=/bin:/usr/bin", NULL};
-        execve("/init/sbin/cat", cat_argv, cat_envp);
-        mux_printf("ERROR: execve returned! This should not happen.\n");
-        exit(pid);
+
+        uint64_t f = fork();
+        if(f == 0) {
+            execve("/init/sbin/cat", cat_argv, cat_envp);
+        } else {
+            waitpid(f, NULL, 0);
+            exit(pid);
+            mux_printf("We better not get here");
+        }
     }
 }

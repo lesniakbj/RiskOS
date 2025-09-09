@@ -502,7 +502,7 @@ static int64_t sys_exec(registers_t* regs) {
         }
     } else {
         // Fallback to node length if no stat function
-        file_stats.size_bytes = file_stats.size_bytes;
+        file_stats.size_bytes = file_node->length;
     }
 
     // Check if the file is executable
