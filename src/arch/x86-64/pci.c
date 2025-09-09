@@ -6,15 +6,18 @@
 #define PCI_CONFIG_ADDRESS 0xCF8
 #define PCI_CONFIG_DATA    0xCFC
 
-static void pci_write_dword(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset, uint32_t value);
-static uint16_t pci_get_vendor_id(uint8_t bus, uint8_t device, uint8_t function);
-static uint16_t pci_get_device_id(uint8_t bus, uint8_t device, uint8_t function);
-static uint8_t pci_get_class_code(uint8_t bus, uint8_t device, uint8_t function);
-static uint8_t pci_get_subclass(uint8_t bus, uint8_t device, uint8_t function);
+
+
+// TODO: Unused, remove
+// static uint8_t pci_get_class_code(uint8_t bus, uint8_t device, uint8_t function);
+// static uint8_t pci_get_subclass(uint8_t bus, uint8_t device, uint8_t function);
+// static void pci_device_found(pci_device_t* device);
+// static void pci_write_dword(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset, uint32_t value);
+// static uint16_t pci_get_vendor_id(uint8_t bus, uint8_t device, uint8_t function);
+// static uint16_t pci_get_device_id(uint8_t bus, uint8_t device, uint8_t function);
 
 static pci_device_t* pci_check_device(uint16_t bus, uint8_t device);
 static pci_device_t* pci_probe_function(uint16_t bus, uint8_t device, uint8_t function);
-static void pci_device_found(pci_device_t* device);
 static uint8_t pci_get_header_type(uint16_t bus, uint8_t device, uint8_t function);
 static void pci_free_devices(pci_device_t* head);
 
@@ -290,23 +293,24 @@ static pci_device_t* pci_probe_function(uint16_t bus, uint8_t device, uint8_t fu
     return new_device;
 }
 
+// TODO: This might actually be needed
 // Dispatches the device to the correct subsystem (SATA, IDE, etc)
-static void pci_device_found(pci_device_t* pci_dev) {
-    const char* class_str = pci_class_subclass_to_string(pci_dev->class_code, pci_dev->subclass);
-    LOG_INFO("Found PCI device %d:%d:%d - V:0x%x, D:0x%x, %s",
-        pci_dev->bus, pci_dev->device, pci_dev->function, pci_dev->vendor_id,
-        pci_dev->device_id, class_str);
-
-    switch (pci_dev->class_code) {
-        case 0x01:  // Mass Storage Controller
-            if(pci_dev->subclass == 0x01) { // IDE Controller
-                LOG_INFO("-> Handing off to Disk Driver...");
-                // TODO: Fix disk and ide initialization
-                // ide_controller_initialize(pci_dev);
-            }
-            break;
-    }
-}
+//static void pci_device_found(pci_device_t* pci_dev) {
+//    const char* class_str = pci_class_subclass_to_string(pci_dev->class_code, pci_dev->subclass);
+//    LOG_INFO("Found PCI device %d:%d:%d - V:0x%x, D:0x%x, %s",
+//        pci_dev->bus, pci_dev->device, pci_dev->function, pci_dev->vendor_id,
+//        pci_dev->device_id, class_str);
+//
+//    switch (pci_dev->class_code) {
+//        case 0x01:  // Mass Storage Controller
+//            if(pci_dev->subclass == 0x01) { // IDE Controller
+//                LOG_INFO("-> Handing off to Disk Driver...");
+//                // TODO: Fix disk and ide initialization
+//                // ide_controller_initialize(pci_dev);
+//            }
+//            break;
+//    }
+//}
 
 static uint8_t pci_get_header_type(uint16_t bus, uint8_t device, uint8_t function) {
     uint32_t reg = pci_read_dword(bus, device, function, 0x0C);
@@ -319,28 +323,29 @@ uint32_t pci_read_dword(uint16_t bus, uint8_t device, uint8_t function, uint8_t 
     return inl(PCI_CONFIG_DATA);
 }
 
-static void pci_write_dword(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset, uint32_t value) {
-    uint32_t address = (uint32_t)((bus << 16) | (device << 11) | (function << 8) | (offset & 0xFC) | 0x80000000);
-    outl(PCI_CONFIG_ADDRESS, address);
-    outl(PCI_CONFIG_DATA, value);
-}
+//static void pci_write_dword(uint8_t bus, uint8_t device, uint8_t function, uint8_t offset, uint32_t value) {
+//    uint32_t address = (uint32_t)((bus << 16) | (device << 11) | (function << 8) | (offset & 0xFC) | 0x80000000);
+//    outl(PCI_CONFIG_ADDRESS, address);
+//    outl(PCI_CONFIG_DATA, value);
+//}
+//
+//static uint16_t pci_get_vendor_id(uint8_t bus, uint8_t device, uint8_t function) {
+//    uint32_t reg = pci_read_dword(bus, device, function, 0x00);
+//    return reg & 0xFFFF;
+//}
+//
+//static uint16_t pci_get_device_id(uint8_t bus, uint8_t device, uint8_t function) {
+//    uint32_t reg = pci_read_dword(bus, device, function, 0x00);
+//    return reg >> 16;
+//}
 
-static uint16_t pci_get_vendor_id(uint8_t bus, uint8_t device, uint8_t function) {
-    uint32_t reg = pci_read_dword(bus, device, function, 0x00);
-    return reg & 0xFFFF;
-}
-
-static uint16_t pci_get_device_id(uint8_t bus, uint8_t device, uint8_t function) {
-    uint32_t reg = pci_read_dword(bus, device, function, 0x00);
-    return reg >> 16;
-}
-
-static uint8_t pci_get_class_code(uint8_t bus, uint8_t device, uint8_t function) {
-    uint32_t reg = pci_read_dword(bus, device, function, 0x08);
-    return (reg >> 24) & 0xFF;
-}
-
-static uint8_t pci_get_subclass(uint8_t bus, uint8_t device, uint8_t function) {
-    uint32_t reg = pci_read_dword(bus, device, function, 0x08);
-    return (reg >> 16) & 0xFF;
-}
+// TODO: Remove, unused
+//static uint8_t pci_get_class_code(uint8_t bus, uint8_t device, uint8_t function) {
+//    uint32_t reg = pci_read_dword(bus, device, function, 0x08);
+//    return (reg >> 24) & 0xFF;
+//}
+//
+//static uint8_t pci_get_subclass(uint8_t bus, uint8_t device, uint8_t function) {
+//    uint32_t reg = pci_read_dword(bus, device, function, 0x08);
+//    return (reg >> 16) & 0xFF;
+//}

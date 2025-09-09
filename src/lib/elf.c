@@ -1,4 +1,7 @@
 #include <lib/elf.h>
+#define USER_STACK_TOP 0x7000000000
+#define USER_STACK_SIZE 0x4000 // 16KB
+
 #include <kernel/log.h>
 #include <arch/x86-64/vmm.h>
 #include <arch/x86-64/pmm.h>
@@ -85,7 +88,7 @@ process_t* elf_load_process(void* file_ptr) {
            return NULL;
         }
         uint64_t vaddr = USER_STACK_TOP - USER_STACK_SIZE + i;
-        vmm_map_page_to(proc->pml4_phys, (void*)vaddr, phys_page, PAGE_PRESENT | PAGE_READ_WRITE | PAGE_USER);
+        vmm_map_page_to(proc->pml4_phys, vaddr, (uint64_t)phys_page, PAGE_PRESENT | PAGE_READ_WRITE | PAGE_USER);
     }
 
     // Stage 5: Craft the initial register frame on the process's KERNEL stack.
@@ -138,6 +141,6 @@ void map_segment_pages(uint64_t size, uint64_t virt_addr, uint64_t pml4) {
             return;
         }
         uint64_t segment_vaddr = virt_addr + i;
-        vmm_map_page_to(pml4, (void*)segment_vaddr, phys_page, PAGE_PRESENT | PAGE_READ_WRITE | PAGE_USER);
+        vmm_map_page_to(pml4, segment_vaddr, (uint64_t)phys_page, PAGE_PRESENT | PAGE_READ_WRITE | PAGE_USER);
     }
 }

@@ -155,8 +155,8 @@ void pmm_init(struct limine_memmap_response *mmap_resp, struct limine_executable
 void* pmm_alloc_block() {
     // Find the first free block.
     uint64_t frame = pmm_find_first_free();
-    if (frame == PMM_NO_FREE_BLOCKS) {
-        return 0; // Out of memory
+    if (frame == PMM_ENTRY_FULL) {
+        return NULL; // Out of memory
     }
 
     // Mark the block as used.

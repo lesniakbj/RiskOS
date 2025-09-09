@@ -6,7 +6,7 @@
 #include <libc/string.h>
 
 static void discover_pci_devices();
-static char* devdisc_parse_pci_device_name(uint8_t class_code, uint8_t subclass);
+// static char* devdisc_parse_pci_device_name(uint8_t class_code, uint8_t subclass);
 
 void devdisc_discover_devices() {
     discover_pci_devices();

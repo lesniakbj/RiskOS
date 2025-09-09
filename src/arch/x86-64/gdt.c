@@ -111,28 +111,7 @@ uint64_t tss_get_stack_ptr() {
     return tss_entry.rsp0;
 }
 
-static void print_descriptor_fields(uint64_t desc, int idx) {
-    // Descriptor layout in a single 64-bit qword when read as little-endian:
-    // bits 0..15   : limit_low
-    // bits 16..39  : base_low + base_middle (split across fields in struct)
-    // bits 40..47  : access
-    // bits 48..51  : limit_high (bits 16..19 of limit)
-    // bits 52..55  : flags (L, D/B, G)
-    // bits 56..63  : base_high (bits 24..31)
-    uint16_t limit_low = desc & 0xffff;
-    uint8_t base_lo_middle = (desc >> 16) & 0xff;
-    uint8_t base_high = (desc >> 56) & 0xff;
-    uint8_t access = (desc >> 40) & 0xff;
-    uint8_t limit_high = (desc >> 48) & 0x0f;
-    uint8_t flags = (desc >> 52) & 0x0f;
-
-    uint32_t base = ((uint32_t)base_high << 24) | (((uint32_t)(desc >> 16) & 0xff) << 16) | 0; // partial but okay for checks
-
-    LOG_INFO("GDT slot %d: raw=0x%016llx limit_low=0x%04x access=0x%02x flags=0x%01x limit_high=0x%01x base_high=0x%02x",
-             idx, (unsigned long long)desc, (unsigned)limit_low, (unsigned)access, (unsigned)flags, (unsigned)limit_high, (unsigned)base_high);
-}
-
-void dump_gdt_fixed(void) {
+void dump_gdt_fixed() {
     uintptr_t base = (uintptr_t)gdt_ptr.address;
     uint16_t limit = gdt_ptr.limit;
     LOG_INFO("DEBUG GDT: location=0x%lx, limit=%u", (unsigned long)base, (unsigned)limit);

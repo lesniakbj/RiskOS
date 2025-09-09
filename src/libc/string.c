@@ -9,7 +9,7 @@ size_t strlen(const char *str) {
     return len;
 }
 
-char* strchr(const char* str, int64_t c) {
+char* strchr(const char* str, int c) {
     // Cast c to unsigned char to match standard behavior for comparison
     unsigned char target = (unsigned char)c;
 
@@ -31,7 +31,7 @@ char* strchr(const char* str, int64_t c) {
     return NULL;
 }
 
-char* strrchr(const char* str, int64_t c) {
+char* strrchr(const char* str, int c) {
     char* last_occurrence = NULL;
     // Cast c to unsigned char to match standard behavior for comparison
     unsigned char target = (unsigned char)c;

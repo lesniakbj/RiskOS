@@ -5,8 +5,8 @@
 #include <stdint.h>
 
 size_t strlen(const char *str);
-char* strchr(const char* str, int64_t c);
-char* strrchr(const char* str, int64_t c);
+char* strchr(const char* str, int c);
+char* strrchr(const char* str, int c);
 char* strcpy(char* dest, const char* src);
 char* strncpy(char* dest, const char* src, size_t n);
 int strcmp(const char* s1, const char* s2);

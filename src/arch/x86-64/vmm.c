@@ -7,7 +7,9 @@
 // Pointer to the kernel's top-level page table (PML4)
 static pml4_t *kernel_pml4_virt = NULL;
 static uint64_t kernel_pml4_phys = 0;
-static uint64_t current_pml4_phys = 0;
+
+// TODO: This was unused
+// static uint64_t current_pml4_phys = 0;
 
 // The higher-half direct map offset
 static uint64_t hhdm_offset = 0;
@@ -72,6 +74,8 @@ static pt_entry_t* vmm_walk_to_pte(uint64_t virt_addr, bool create_if_missing) {
 }
 
 void vmm_init(struct limine_memmap_response *mmap_resp, struct limine_hhdm_response *hhdm_resp) {
+    (void)mmap_resp;
+
     if (hhdm_resp == NULL) {
         LOG_ERR("VMM Error: HHDM response is required.");
         for (;;) { asm("hlt"); }
@@ -179,7 +183,13 @@ uint64_t vmm_get_current_pml4() {
     return pml4_phys;
 }
 
+uint64_t vmm_get_hhdm_offset() {
+    return hhdm_offset;
+}
+
 static void clone_pt(pt_t* pt_virt_src, pt_t* pt_virt_dst, pml4_t* pml4_virt_src) {
+    (void)pml4_virt_src;
+
     for (int i = 0; i < 512; i++) {
         if (pt_virt_src->entries[i] & PAGE_PRESENT) {
             pt_entry_t* pte_src = &pt_virt_src->entries[i];

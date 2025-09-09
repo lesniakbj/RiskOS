@@ -4,6 +4,6 @@
 #include <stdint.h>
 #include <stddef.h>
 
-int64_t octal_to_int(unsigned char *str, size_t size);
+int64_t octal_to_int(char *str, size_t size);
 
 #endif

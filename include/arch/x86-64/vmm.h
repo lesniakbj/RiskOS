@@ -44,7 +44,6 @@ typedef struct {
 } __attribute__((aligned(PAGE_SIZE))) pml4_t; // Page Map Level 4
 
 
-
 void vmm_init(struct limine_memmap_response *mmap_resp, struct limine_hhdm_response *hhdm_resp);
 
 bool vmm_map_page(uint64_t virt_addr, uint64_t phys_addr, uint64_t flags);
@@ -55,9 +54,15 @@ void vmm_unmap_page_from(uint64_t pml4_phys, uint64_t virt_addr);
 
 void* physical_to_virtual(uint64_t physical_addr);
 uint64_t vmm_get_physical_addr(uint64_t virt_addr);
+uint64_t vmm_get_physical_addr_from(uint64_t pml4_phys, uint64_t virt_addr);
+
+void vmm_load_pml4(uint64_t pml4_phys);
 uint64_t vmm_get_kernel_pml4();
 uint64_t vmm_get_current_pml4();
+
 uint64_t vmm_create_address_space();
 uint64_t vmm_clone_address_space(uint64_t pml4_phys_src);
+
+uint64_t vmm_get_hhdm_offset();
 
 #endif

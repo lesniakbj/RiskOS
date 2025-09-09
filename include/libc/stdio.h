@@ -3,6 +3,6 @@
 
 #define EOF (-1)
 
-int puts(const char *s);
+int64_t puts(const char *s);
 
 #endif

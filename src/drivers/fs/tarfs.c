@@ -141,9 +141,9 @@ static vfs_node_t* tarfs_create_path(vfs_node_t* root, const char* path, uint8_t
         memcpy(component, start, len);
         component[len] = '\0';
         
-        // For the last component, we need to create the actual file or directory
-        // For intermediate components, we just need to find or create directories
+        // TODO: This logic might be needed for more complex scenarios
         bool should_create = is_last_component || (end && *(end + 1) == '\0');
+        (void)should_create;
         
         // Look for existing child with this name
         vfs_node_t* child = current_node->first_child;
@@ -253,6 +253,11 @@ static int64_t tar_file_read(vfs_node_t *node, uint64_t offset, size_t size, voi
 }
 
 static int64_t tar_file_write(vfs_node_t *node, uint64_t offset, size_t size, const void *buffer) {
+    // TODO: Implement write functionality
+    (void)node;
+    (void)offset;
+    (void)size;
+    (void)buffer;
     // Read only
     return -1;
 }

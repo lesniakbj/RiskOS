@@ -93,9 +93,10 @@ static void ide_probe_drive(uint16_t channel_base, uint8_t channel_num, uint8_t 
     device->drive = drive_type;
     device->type = IDE_ATA;
 
-    // FIX: The size is a 32-bit value at word offset 60.
-    // We cast the array of words to a pointer to a 32-bit integer to read it correctly.
-    device->size = *((uint32_t*)&identify_data[ATA_IDENT_MAX_LBA / 2]);
+    // We read the 32-bit size value by copying it into a uint32_t to avoid strict-aliasing issues.
+    uint32_t lba_size;
+    memcpy(&lba_size, &identify_data[ATA_IDENT_MAX_LBA / 2], sizeof(uint32_t));
+    device->size = lba_size;
 
     // The model string is 40 bytes (20 words) starting at word 27.
     // The characters in each word are swapped.
@@ -176,5 +177,10 @@ int64_t ide_read_sectors(disk_device_t* disk, uint64_t lba, uint32_t count, void
 }
 
 int64_t ide_write_sectors(disk_device_t* disk, uint64_t lba, uint32_t count, const void* buffer) {
+    (void)disk;
+    (void)lba;
+    (void)count;
+    (void)buffer;
+    // TODO: Implement IDE write functionality
     return -1;
 }

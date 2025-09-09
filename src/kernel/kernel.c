@@ -5,6 +5,7 @@
 #include <kernel/heap.h>
 #include <kernel/log.h>
 #include <kernel/syscall.h>
+#include <kernel/syscall_helpers.h>
 #include <kernel/limine.h>
 #include <kernel/limreq.h>
 #include <drivers/fb_console.h>
@@ -13,6 +14,7 @@
 #include <drivers/disk.h>
 #include <drivers/device.h>
 #include <drivers/devdisc.h>
+#include <drivers/input.h>
 #include <drivers/fs/vfs.h>
 #include <drivers/fs/tarfs.h>
 #include <drivers/fs/devfs.h>
@@ -192,6 +194,8 @@ static void memory_init() {
 
 static void kdevice_init() {
     pci_init();
+    // TODO: Init PS/2 keyboard driver here
+    // keyboard_init();
     if (pit_init(1000) == 0) {
         system_time_init(date_at_boot_request.response);
     } else {

@@ -91,7 +91,6 @@ void log_print(log_level_t level, const char* file, void* caller_addr, int line,
 
 char* format_size(uint64_t size) {
     static char buf[40];
-    char num_buf[22];
     char* p = buf;
     const uint64_t GIB = 1024ULL * 1024 * 1024;
     const uint64_t MIB = 1024 * 1024;

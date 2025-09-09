@@ -131,7 +131,7 @@ void proc_exec(process_t* process) {
 }
 
 // Helper function to set up standard file descriptors for a process
-int proc_setup_std_fds(process_t* proc) {
+int64_t proc_setup_std_fds(process_t* proc) {
     if (proc == NULL) {
         return -1;
     }

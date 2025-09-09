@@ -78,11 +78,19 @@ vfs_node_t* fat32_mount_partition(partition_t* partition, const char* name) {
 // (These need to be implemented to make the filesystem functional)
 
 vfs_node_t* fat32_lookup(struct vfs_node* parent, const char* name) {
+    // TODO: Implement lookup functionality
+    (void)parent;
+    (void)name;
     LOG_WARN("fat32_lookup not implemented");
     return NULL;
 }
 
 int64_t fat32_read(struct vfs_node *node, uint64_t offset, size_t size, void *buffer) {
+    // TODO: Implement read functionality
+    (void)node;
+    (void)offset;
+    (void)size;
+    (void)buffer;
     LOG_WARN("fat32_read not implemented");
     return -1;
 }

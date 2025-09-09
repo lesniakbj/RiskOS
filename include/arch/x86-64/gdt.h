@@ -57,8 +57,9 @@ void tss_init();
 void tss_set_stack(uint64_t kernel_rsp);
 uint64_t tss_get_stack_ptr();
 
+void dump_gdt_fixed();
+void dump_tss_info_fixed();
+
 extern void tss_flush();
-
-
 
 #endif

@@ -49,8 +49,8 @@ typedef struct process {
     struct process* parent;     // Pointer to the parent process
     uint64_t exit_code;         // Exit code if the process has exited
     vfs_node_t* working_dir;    // Working dir of this process
-    uint64_t program_break;
-    uint64_t program_break_start;
+    uint64_t program_break;         // Current size of data/heap
+    uint64_t program_break_start;   // Start of the program break (heap/data segements)
     
     // File descriptors
     file_desc_t file_descriptors[MAX_FD_PER_PROCESS];
@@ -74,5 +74,7 @@ void proc_scheduler_run_special(registers_t *regs, bool is_exit);
 
 // Get the current process
 process_t* proc_get_current();
+
+int64_t proc_setup_std_fds(process_t* proc);
 
 #endif
