@@ -238,6 +238,56 @@ static void clone_pdpt(pdpt_t* pdpt_virt_src, pdpt_t* pdpt_virt_dst, pml4_t* pml
     }
 }
 
+static void free_pt(pt_t* pt_virt) {
+    for (int i = 0; i < 512; i++) {
+        if (pt_virt->entries[i] & PAGE_PRESENT) {
+            // Free the physical page
+            pmm_free_block((void*)(pt_virt->entries[i] & PAGE_ADDR_MASK));
+        }
+    }
+    // Free the page table itself
+    pmm_free_block(pt_virt);
+}
+
+static void free_pd(pd_t* pd_virt) {
+    for (int i = 0; i < 512; i++) {
+        if (pd_virt->entries[i] & PAGE_PRESENT) {
+            pt_t* pt_virt = (pt_t*)physical_to_virtual(pd_virt->entries[i] & PAGE_ADDR_MASK);
+            free_pt(pt_virt);
+        }
+    }
+    // Free the page directory itself
+    pmm_free_block(pd_virt);
+}
+
+static void free_pdpt(pdpt_t* pdpt_virt) {
+    for (int i = 0; i < 512; i++) {
+        if (pdpt_virt->entries[i] & PAGE_PRESENT) {
+            pd_t* pd_virt = (pd_t*)physical_to_virtual(pdpt_virt->entries[i] & PAGE_ADDR_MASK);
+            free_pd(pd_virt);
+        }
+    }
+    // Free the page directory pointer table itself
+    pmm_free_block(pdpt_virt);
+}
+
+void vmm_free_address_space(uint64_t pml4_phys) {
+    if (pml4_phys == 0) return;
+    
+    pml4_t* pml4_virt = (pml4_t*)physical_to_virtual(pml4_phys);
+    
+    // Free user space mappings (first 256 entries)
+    for (int i = 0; i < 256; i++) {
+        if (pml4_virt->entries[i] & PAGE_PRESENT) {
+            pdpt_t* pdpt_virt = (pdpt_t*)physical_to_virtual(pml4_virt->entries[i] & PAGE_ADDR_MASK);
+            free_pdpt(pdpt_virt);
+        }
+    }
+    
+    // Free the PML4 itself
+    pmm_free_block(pml4_virt);
+}
+
 uint64_t vmm_clone_address_space(uint64_t pml4_phys_src) {
     uint64_t pml4_phys_dst = vmm_create_address_space();
     if (pml4_phys_dst == 0) {

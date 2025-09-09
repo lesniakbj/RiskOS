@@ -33,6 +33,7 @@ static int64_t sys_brk(registers_t* regs);
 static int64_t sys_yield(registers_t* regs);
 static int64_t sys_getpid(registers_t* regs);
 static int64_t sys_waitid(registers_t* regs);
+static int64_t sys_exec(registers_t* regs);
 
 // Syscall table
 static syscall_func_t syscall_table[MAX_SYSCALLS] = {
@@ -47,6 +48,7 @@ static syscall_func_t syscall_table[MAX_SYSCALLS] = {
     [SYS_PROC_PID]      = sys_getpid,
     [SYS_PROC_FORK]     = sys_fork,
     [SYS_WAITID]        = sys_waitid,
+    [SYSCALL_EXEC]      = sys_exec,
 };
 
 
@@ -125,7 +127,7 @@ static int64_t sys_write(registers_t* regs) {
     file_desc_t* file = &current_proc->file_descriptors[fd];
 
     if (file->node == NULL) {
-        LOG_ERR("sys_write: ERROR: file->node is NULL for fd %llu", fd);
+//        LOG_ERR("sys_write: ERROR: file->node is NULL for fd %llu", fd);
         return -1;
     }
 
@@ -432,8 +434,8 @@ static int64_t sys_waitid(registers_t* regs) {
     uint64_t id = regs->rsi;
     void* info = (void*)regs->rdx;
     int options = regs->r10;
-    LOG_ERR("--- sys_waitid ENTER ---");
-    LOG_ERR("  idtype=%llu, id=%llu, info=0x%llx, options=%d", idtype, id, (uint64_t)info, options);
+    // LOG_ERR("--- sys_waitid ENTER ---");
+    // LOG_ERR("  idtype=%llu, id=%llu, info=0x%llx, options=%d", idtype, id, (uint64_t)info, options);
 
     if(idtype != 0) { // Corresponds to P_PID
         LOG_ERR("  Unsupported idtype: %llu. Only P_PID (0) is supported.", idtype);
@@ -441,14 +443,14 @@ static int64_t sys_waitid(registers_t* regs) {
     }
 
     process_t* parent = proc_get_current();
-    LOG_ERR("  Parent PID %llu is waiting.", parent->pid);
+//    LOG_ERR("  Parent PID %llu is waiting.", parent->pid);
 
     for (;;) {
-        LOG_ERR("  [%d] Scanning for zombie child...", parent->pid);
+//        LOG_ERR("  [%d] Scanning for zombie child...", parent->pid);
         process_t* child_to_reap = find_zombie_child(parent->pid, id);
 
         if (child_to_reap != NULL) {
-            LOG_ERR("  [%d] Found zombie child %d to reap.", parent->pid, child_to_reap->pid);
+//            LOG_ERR("  [%d] Found zombie child %d to reap.", parent->pid, child_to_reap->pid);
 
             // TODO: Copy exit information to the user-space `info` struct.
 
@@ -458,7 +460,7 @@ static int64_t sys_waitid(registers_t* regs) {
             return child_pid;
         }
 
-        LOG_ERR("  [%d] No zombie child found.", parent->pid);
+//        LOG_ERR("  [%d] No zombie child found.", parent->pid);
         if (options & 1) { // WNOHANG is typically 1
             LOG_ERR("  WNOHANG option is set, returning 0.");
             LOG_ERR("--- sys_waitid EXIT (WNOHANG) ---");
@@ -466,8 +468,213 @@ static int64_t sys_waitid(registers_t* regs) {
         }
 
         parent->state = PROC_STATE_BLOCKED;
-        LOG_ERR("  [%d] Blocking self and calling scheduler.", parent->pid);
+//        LOG_ERR("  [%d] Blocking self and calling scheduler.", parent->pid);
         proc_scheduler_run(regs);
-        LOG_ERR("  [%d] Woken up from scheduler.", parent->pid);
+//        LOG_ERR("  [%d] Woken up from scheduler.", parent->pid);
     }
+}
+
+static int64_t sys_exec(registers_t* regs) {
+    const char* filename = (const char*)regs->rdi;
+    char** argv = (char**)regs->rsi;
+    char** envp = (char**)regs->rdx;
+
+    // Copy the filename from user space
+    char kfilename[256];
+    if (copy_from_user(kfilename, filename, sizeof(kfilename)) != 0) {
+        LOG_ERR("sys_exec: Failed to copy filename from user space");
+        return -1; // EFAULT
+    }
+
+    // Open the file using VFS
+    vfs_node_t* file_node = vfs_open(kfilename);
+    if (file_node == NULL) {
+        LOG_ERR("sys_exec: Failed to open file '%s'", kfilename);
+        return -2; // ENOENT
+    }
+    
+    // Get the correct file size using stat
+    file_stats_t file_stats;
+    if (file_node->fops && file_node->fops->stat) {
+        if (file_node->fops->stat(file_node, &file_stats) != 0) {
+            LOG_ERR("sys_exec: Failed to get file stats for '%s'", kfilename);
+            return -5; // EIO
+        }
+    } else {
+        // Fallback to node length if no stat function
+        file_stats.size_bytes = file_stats.size_bytes;
+    }
+
+    // Check if the file is executable
+    if (!(file_node->flags & VFS_EXEC)) {
+        LOG_ERR("sys_exec: File '%s' is not executable", kfilename);
+        return -3; // EACCES
+    }
+
+    // Read the file into kernel memory
+    char* file_buffer = kmalloc(file_stats.size_bytes);
+    if (file_buffer == NULL) {
+        LOG_ERR("sys_exec: Failed to allocate memory for file buffer, size=%llu", file_stats.size_bytes);
+        return -4; // ENOMEM
+    }
+
+    int64_t bytes_read = vfs_read(file_node, 0, file_stats.size_bytes, file_buffer);
+    if (bytes_read <= 0) {
+        LOG_ERR("sys_exec: Failed to read file, bytes_read=%lld", bytes_read);
+        kfree(file_buffer);
+        return -5; // EIO
+    }
+
+    // Validate it's an ELF file
+    elf_header_t* elf_header = (elf_header_t*)file_buffer;
+    if (elf_header->ident[0] != 0x7F || 
+        elf_header->ident[1] != 'E' || 
+        elf_header->ident[2] != 'L' || 
+        elf_header->ident[3] != 'F') {
+        LOG_ERR("sys_exec: File is not a valid ELF file");
+        kfree(file_buffer);
+        return -6; // ENOEXEC
+    }
+
+    // Count argc and copy argv to kernel space
+    int argc = 0;
+    char** kargv = NULL;
+    
+    if (argv) {
+        // First count the arguments
+        for (argc = 0; argc < 63; argc++) {  // Limit to 63 arguments for safety
+            if (argv[argc] == NULL) break;
+        }
+        
+        // Allocate kernel space for argv array
+        kargv = kmalloc((argc + 1) * sizeof(char*));  // +1 for NULL terminator
+        if (kargv == NULL) {
+            LOG_ERR("sys_exec: Failed to allocate memory for argv array");
+            kfree(file_buffer);
+            return -4; // ENOMEM
+        }
+        
+        // Copy each argument string
+        for (int i = 0; i < argc; i++) {
+            kargv[i] = kmalloc(256); // Assume max 256 chars per arg
+            if (kargv[i] == NULL) {
+                LOG_ERR("sys_exec: Failed to allocate memory for argument %d", i);
+                // Free previously allocated args
+                for (int j = 0; j < i; j++) {
+                    kfree(kargv[j]);
+                }
+                kfree(kargv);
+                kfree(file_buffer);
+                return -4; // ENOMEM
+            }
+            
+            if (copy_from_user(kargv[i], argv[i], 256) != 0) {
+                LOG_ERR("sys_exec: Failed to copy argument %d from user space", i);
+                // Free previously allocated args
+                for (int j = 0; j <= i; j++) {
+                    kfree(kargv[j]);
+                }
+                kfree(kargv);
+                kfree(file_buffer);
+                return -1; // EFAULT
+            }
+        }
+        kargv[argc] = NULL;  // NULL terminate
+    }
+
+    // Kernel envp
+    int envc = 0;
+    if (envp) {
+        for (; envp[envc] != NULL; envc++) {}
+    }
+    char** kenvp = NULL;
+    if (envc > 0) {
+        kenvp = kmalloc((envc + 1) * sizeof(char*));
+        if (!kenvp) { /* cleanup and return ENOMEM */ }
+        for (int i = 0; i < envc; ++i) {
+            kenvp[i] = kmalloc(256); // or allocate exact length after measuring
+            if (!kenvp[i]) { /* cleanup */ }
+            if (copy_from_user(kenvp[i], envp[i], 256) != 0) { /* cleanup */ }
+        }
+        kenvp[envc] = NULL;
+    }
+    
+    // Load the ELF with or without arguments
+    process_t* new_proc = NULL;
+    if (argc > 0) {
+        new_proc = elf_load_process_with_args(file_buffer, argc, kargv, kenvp);
+    } else {
+        new_proc = elf_load_process(file_buffer);
+    }
+
+    // Clean up kernel argv copies
+    if (kargv) {
+        for (int i = 0; i < argc; i++) {
+            if (kargv[i]) {
+                kfree(kargv[i]);
+            }
+        }
+        kfree(kargv);
+    }
+
+    if (kenvp) {
+        for (int i = 0; i < envc; ++i) {
+            kfree(kenvp[i]);
+        }
+        kfree(kenvp);
+    }
+
+    if (new_proc == NULL) {
+        LOG_ERR("sys_exec: Failed to load ELF");
+        kfree(file_buffer);
+        return -7; // ENOEXEC
+    }
+
+    // Replace the current process with the new one
+    process_t* current_proc = proc_get_current();
+
+    // Copy the new process data to the current process
+
+    current_proc->pml4_phys = new_proc->pml4_phys;
+    current_proc->program_break = new_proc->program_break;
+    current_proc->program_break_start = new_proc->program_break_start;
+    current_proc->entry_point = new_proc->entry_point;
+    current_proc->kstack_ptr = new_proc->kstack_ptr;
+    current_proc->pgid = new_proc->pgid;
+
+    // Get the new process's initial register state
+    registers_t* new_regs = (registers_t*)new_proc->kstack_ptr;
+
+    // Update the register state that will be restored when returning to userspace
+    // We need to be very careful about which fields we update:
+
+    // For sysretq, we need to set:
+    // rcx = new RIP (entry point)
+    // r11 = new RFLAGS
+    // r8 = new RSP (stack pointer)
+    regs->rcx = new_regs->rip;           // This will become RCX, which sysretq uses as RIP
+    regs->r11 = new_regs->rflags;        // This will become R11, which sysretq uses as RFLAGS
+    regs->r8 = new_regs->user_rsp;       // This will become the new RSP after sysretq
+    new_regs->r8 = new_regs->user_rsp;       // This will become the new RSP after sysretq
+
+    // Also update the fields in the register structure that correspond to these registers
+    regs->rip = new_regs->rip;           // For consistency in the structure
+    regs->user_rsp = new_regs->user_rsp; // The user stack pointer
+    regs->rflags = new_regs->rflags;     // The flags
+    regs->cs = new_regs->cs;             // Code segment
+    regs->ss = new_regs->ss;             // Stack segment
+
+    // Syscall return value should be 0 for success
+    regs->rax = 0;
+
+    // Free the temporary new process structure (but not its address space)
+    // We zero out the pml4_phys so vmm_free_address_space doesn't free it again
+    proc_free(new_proc, 0);
+
+    kfree(file_buffer);
+    vmm_load_pml4(current_proc->pml4_phys);
+
+    // The sys_exec call should not return on success
+    // Instead, we return to userspace with the new process's registers
+    return 0;
 }

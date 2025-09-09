@@ -62,6 +62,7 @@ uint64_t vmm_get_current_pml4();
 
 uint64_t vmm_create_address_space();
 uint64_t vmm_clone_address_space(uint64_t pml4_phys_src);
+void vmm_free_address_space(uint64_t pml4_phys);
 
 uint64_t vmm_get_hhdm_offset();
 

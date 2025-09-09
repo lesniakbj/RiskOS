@@ -218,6 +218,10 @@ int main(int argc, char** argv, char** envp) {
         waitpid(fork_pid, NULL, P_PID);
         mux_printf("Parent (init) has reaped the test child process.\n");
         mux_printf("%d\n", pid);
+        char* cat_argv[] = {"/init/sbin/cat", NULL};
+        char* cat_envp[] = {"PATH=/bin:/usr/bin", NULL};
+        execve("/init/sbin/cat", cat_argv, cat_envp);
+        mux_printf("ERROR: execve returned! This should not happen.\n");
         exit(pid);
     }
 }

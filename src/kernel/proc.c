@@ -181,37 +181,37 @@ int64_t proc_setup_std_fds(process_t* proc) {
 }
 
 process_t* find_zombie_child(uint64_t parent_pid, int64_t child_pid_to_find) {
-    LOG_ERR("find_zombie_child: Searching for child of parent %llu. Specific child PID to find: %lld", parent_pid, child_pid_to_find);
+//    LOG_ERR("find_zombie_child: Searching for child of parent %llu. Specific child PID to find: %lld", parent_pid, child_pid_to_find);
     for(int i = 0; i < MAX_PROCESSES; i++) {
         process_t* current_proc = &process_table[i];
         if (!current_proc->used) {
             continue; // Skip unused slots
         }
 
-        LOG_ERR("  -> Checking PID %llu: ParentPID=%llu, State=%d", current_proc->pid, current_proc->parent ? current_proc->parent->pid : (uint64_t)-1, current_proc->state);
+//        LOG_ERR("  -> Checking PID %llu: ParentPID=%llu, State=%d", current_proc->pid, current_proc->parent ? current_proc->parent->pid : (uint64_t)-1, current_proc->state);
 
         if(current_proc->parent == NULL || current_proc->parent->pid != parent_pid) {
             continue;
         }
-        LOG_ERR("    -> Match: Is a child of parent %llu", parent_pid);
+//        LOG_ERR("    -> Match: Is a child of parent %llu", parent_pid);
 
         if (current_proc->state != PROC_STATE_ZOMBIE) {
             continue;
         }
-        LOG_ERR("    -> Match: Is a zombie.");
+//        LOG_ERR("    -> Match: Is a zombie.");
 
         if (child_pid_to_find > 0) {
             if (current_proc->pid == child_pid_to_find) {
-                LOG_ERR("      -> Match: Found specific PID %lld. Returning.", child_pid_to_find);
+//                LOG_ERR("      -> Match: Found specific PID %lld. Returning.", child_pid_to_find);
                 return current_proc;
             }
         } else {
-            LOG_ERR("      -> Match: Looking for any child. Returning PID %llu.", current_proc->pid);
+//            LOG_ERR("      -> Match: Looking for any child. Returning PID %llu.", current_proc->pid);
             return current_proc;
         }
     }
 
-    LOG_ERR("find_zombie_child: No matching zombie child found for parent %llu.", parent_pid);
+//    LOG_ERR("find_zombie_child: No matching zombie child found for parent %llu.", parent_pid);
     return NULL;
 }
 
