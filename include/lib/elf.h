@@ -54,5 +54,5 @@ typedef struct elf_program_header {
 
 process_t* elf_load_process(void* file_ptr);
 void elf_load_process_vfs(vfs_node_t* file);
-
+void elf_load_process_vfs_args(vfs_node_t* file, int argc, char** argv, char** envp);
 #endif

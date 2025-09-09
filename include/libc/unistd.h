@@ -23,9 +23,11 @@
 #define SYS_BRK                 12
 
 #define SYS_PROC_YIELD          24
-#define SYS_PROC_EXIT           60
 #define SYS_PROC_PID            39
 #define SYS_PROC_FORK           57
+
+#define SYS_EXEC                59
+#define SYS_PROC_EXIT           60
 
 #define SYS_WAITID              247
 #define     P_PID               0
@@ -122,6 +124,7 @@
 void yield();
 int64_t fork();
 int64_t pid();
+int64_t execve(const char* pathname, char *const argv[], char *const envp[]);
 
 // --- Process memory requests ---
 int64_t brk(void* addr);

@@ -12,6 +12,10 @@ void exit(int64_t status) {
     _SYSCALL1_NO_RET(SYS_PROC_EXIT, status);
 }
 
+int64_t execve(const char* pathname, char *const argv[], char *const envp[]) [
+    _SYSCALL3(SYS_EXEC, pathname, argv, envp);
+]
+
 int64_t getpid() {
     return _SYSCALL0(SYS_PROC_PID);
 }

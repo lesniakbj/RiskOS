@@ -23,8 +23,6 @@ static int32_t scrollback_head = 0;
 static int32_t scrollback_tail = 0;
 static int32_t scroll_offset = 0;
 
-static void framebuffer_scroll_up();
-
 static color_t uint_to_color(uint32_t color_val) {
     color_t color;
     color.a = (color_val >> 24) & 0xFF;
@@ -55,80 +53,15 @@ static file_ops_t fb_console_fops = {
     .stat = NULL,
 };
 
-void framebuffer_console_init(limine_framebuffer_t *framebuffer) {
-    (void)scroll_offset;
-
-    // Create a copy of the buffer info so we can reclaim that memory later
-    display_buffer = &local_framebuffer;
-    memcpy(display_buffer, framebuffer, sizeof(limine_framebuffer_t));
-
-    // Init the font for this console
-    font = &g_cascadia_mono_font;
-    current_color = (color_t){255, 0, 0, 0};
-
-    // TODO: Init anything we need with the framebuffer here (draw initial boot glyphs, etc)
-    log_screen_ready();
-}
-
-void framebuffer_console_register() {
-    devfs_register_device("console", &fb_console_fops);
-}
-
-void framebuffer_init(struct limine_framebuffer_response *framebuffer_resp) {
-    if (framebuffer_resp == NULL || framebuffer_resp->framebuffer_count < 1) {
-        LOG_ERR("Framebuffer request not honored! Halting...");
-        for (;;) {
-            asm volatile ("hlt");
-        }
-    }
-
-    // Initialize the console with the first framebuffer.
-    framebuffer_console_init(framebuffer_resp->framebuffers[0]);
-}
-
-void framebuffer_writestring(const char* data) {
-    int32_t i = 0;
-    while (data[i] != 0) {
-    	framebuffer_putchar(data[i++]);
-    }
-}
-
-void framebuffer_putchar(char c) {
-    // Ensure we have a valid framebuffer before we attempt to draw a character
-    if (display_buffer->address) {
-        // Handle newlines and line wrapping
-        if (c == '\n') {
-            cursor_x = 0;
-            cursor_y += FONT_HEIGHT;
-            is_new_line = true;
-            // TODO: Add character to scrollback buffer
-        } else if (c == '\t') {
-            // Handle tab characters ensuring we are tabbing to tab stops
-            int32_t tab_stop_pixels = TAB_WIDTH * FONT_WIDTH;
-            cursor_x = ((cursor_x / tab_stop_pixels) + 1) * tab_stop_pixels;
-        } else {
-            // Draw the character
-            draw_char(c, cursor_x, cursor_y, current_color);
-            cursor_x += FONT_WIDTH;
-        }
-
-        // Handle line wrap if the cursor goes past the screen width
-        if (cursor_x >= display_buffer->width) {
-            cursor_x = 0;
-            cursor_y += FONT_HEIGHT;
-            is_new_line = true;
-        }
-
-        // Handle scrolling if cursor_y goes past the screen height
-        if (cursor_y >= display_buffer->height) {
-            framebuffer_scroll_up();
-            cursor_y = display_buffer->height - FONT_HEIGHT; // Reset cursor_y to the last line
-        }
-    }
+// Clears the entire visible screen.
+static void framebuffer_clear_screen() {
+    uint32_t total_display_bytes = display_buffer->height * display_buffer->pitch;
+    memset((void*)display_buffer->address, 0, total_display_bytes);
 }
 
 // Scrolls the framebuffer content up by one line (FONT_HEIGHT pixels).
-static void framebuffer_scroll_up() {
+// This is for live scrolling, not history scrolling.
+static void framebuffer_scroll_up_pixels() {
     uint32_t bytes_per_row = display_buffer->pitch;
     uint32_t scroll_amount_bytes = FONT_HEIGHT * bytes_per_row;
     uint32_t total_display_bytes = display_buffer->height * bytes_per_row;
@@ -148,26 +81,168 @@ static void framebuffer_scroll_up() {
     );
 }
 
+// Redraws the entire visible screen from the scrollback buffer based on scroll_offset.
+void framebuffer_redraw() {
+    framebuffer_clear_screen();
+
+    uint32_t visible_lines = display_buffer->height / FONT_HEIGHT;
+    // Calculate the starting line in the circular buffer based on head and scroll_offset
+    // This ensures we draw the correct historical lines.
+    int32_t start_line_idx = (scrollback_head - scroll_offset - (visible_lines - 1) + SCROLLBACK_BUFFER_SIZE) % SCROLLBACK_BUFFER_SIZE;
+
+    uint16_t current_draw_y = 0;
+    for (uint32_t i = 0; i < visible_lines; i++) {
+        int32_t buffer_idx = (start_line_idx + i + SCROLLBACK_BUFFER_SIZE) % SCROLLBACK_BUFFER_SIZE;
+        if (scrollback_buffer[buffer_idx][0] != '\0') { // Only draw if line is not empty
+            uint16_t temp_cursor_x = 0;
+            for (int char_idx = 0; scrollback_buffer[buffer_idx][char_idx] != '\0'; char_idx++) {
+                draw_char(scrollback_buffer[buffer_idx][char_idx], temp_cursor_x, current_draw_y, current_color);
+                temp_cursor_x += FONT_WIDTH;
+            }
+        }
+        current_draw_y += FONT_HEIGHT;
+    }
+}
+
+void framebuffer_console_init(limine_framebuffer_t *framebuffer) {
+    // Create a copy of the buffer info so we can reclaim that memory later
+    display_buffer = &local_framebuffer;
+    memcpy(display_buffer, framebuffer, sizeof(limine_framebuffer_t));
+
+    // Init the font for this console
+    font = &g_cascadia_mono_font;
+    current_color = (color_t){255, 0, 0, 0};
+
+    // Clear the scrollback buffer
+    for (int i = 0; i < SCROLLBACK_BUFFER_SIZE; i++) {
+        memset(scrollback_buffer[i], 0, 256);
+    }
+    scrollback_head = 0;
+    scrollback_tail = 0;
+    scroll_offset = 0;
+
+    // Initial redraw to clear screen and show empty console
+    framebuffer_redraw();
+
+    log_screen_ready();
+}
+
+void framebuffer_console_register() {
+    devfs_register_device("console", &fb_console_fops);
+}
+
+void framebuffer_init(struct limine_framebuffer_response *framebuffer_resp) {
+    if (framebuffer_resp == NULL || framebuffer_resp->framebuffer_count < 1) {
+        LOG_ERR("Framebuffer request not honored! Halting...");
+        for (;;)
+ {
+            asm volatile ("hlt");
+        }
+    }
+
+    // Initialize the console with the first framebuffer.
+    framebuffer_console_init(framebuffer_resp->framebuffers[0]);
+}
+
+void framebuffer_writestring(const char* data) {
+    int32_t i = 0;
+    while (data[i] != 0) {
+    	framebuffer_putchar(data[i++]);
+    }
+    // If we were in history view, jump back to live view after new text.
+    if (scroll_offset != 0) {
+        scroll_offset = 0;
+        framebuffer_redraw();
+    }
+}
+
+void framebuffer_putchar(char c) {
+    // Ensure we have a valid framebuffer before we attempt to draw a character
+    if (display_buffer->address) {
+        // If we are not in live view, jump back to live view when new input arrives.
+        if (scroll_offset != 0) {
+            scroll_offset = 0;
+            framebuffer_redraw();
+        }
+
+        // Add character to current line in scrollback buffer
+        if (cursor_x / FONT_WIDTH < 255) { // Prevent overflow of line buffer
+            scrollback_buffer[scrollback_head][cursor_x / FONT_WIDTH] = c;
+        }
+
+        // Handle newlines and line wrapping
+        if (c == '\n') {
+            cursor_x = 0;
+            cursor_y += FONT_HEIGHT;
+            is_new_line = true;
+            // Advance scrollback head for new line
+            scrollback_head = (scrollback_head + 1) % SCROLLBACK_BUFFER_SIZE;
+            if (scrollback_head == scrollback_tail) {
+                scrollback_tail = (scrollback_tail + 1) % SCROLLBACK_BUFFER_SIZE;
+            }
+            memset(scrollback_buffer[scrollback_head], 0, 256); // Clear new line
+        } else if (c == '\t') {
+            // Handle tab characters ensuring we are tabbing to tab stops
+            int32_t tab_stop_pixels = TAB_WIDTH * FONT_WIDTH;
+            cursor_x = ((cursor_x / tab_stop_pixels) + 1) * tab_stop_pixels;
+        } else {
+            // Draw the character directly to the framebuffer
+            draw_char(c, cursor_x, cursor_y, current_color);
+            cursor_x += FONT_WIDTH;
+        }
+
+        // Handle line wrap if the cursor goes past the screen width
+        if (cursor_x >= display_buffer->width) {
+            cursor_x = 0;
+            cursor_y += FONT_HEIGHT;
+            is_new_line = true;
+            // Advance scrollback head for new line
+            scrollback_head = (scrollback_head + 1) % SCROLLBACK_BUFFER_SIZE;
+            if (scrollback_head == scrollback_tail) {
+                scrollback_tail = (scrollback_tail + 1) % SCROLLBACK_BUFFER_SIZE;
+            }
+            memset(scrollback_buffer[scrollback_head], 0, 256); // Clear new line
+        }
+
+        // Perform pixel-level scroll (blitting) if cursor_y goes past the screen height
+        // and we are in live view (scroll_offset == 0).
+        if (cursor_y >= display_buffer->height && scroll_offset == 0) {
+            framebuffer_scroll_up_pixels();
+            cursor_y = display_buffer->height - FONT_HEIGHT; // Reset cursor_y to the last line
+        }
+    }
+}
+
+void framebuffer_scroll_up_history() {
+    // Increment scroll_offset to view older lines
+    if (scroll_offset < SCROLLBACK_BUFFER_SIZE - 1) { // Prevent scrolling past the oldest line
+        scroll_offset++;
+        framebuffer_redraw();
+    }
+}
+
+void framebuffer_scroll_down_history() {
+    // Decrement scroll_offset to view newer lines
+    if (scroll_offset > 0) {
+        scroll_offset--;
+        framebuffer_redraw();
+    }
+}
+
 void draw_char(char c, uint32_t x, uint32_t y, color_t color_val) {
     uint8_t char_height = font->asciiHeight;
     uint8_t char_width = font->asciiWidths[(int32_t)c];
     const uint8_t* glyph = font->asciiGlyphs[(int32_t)c];
     color_t text_color = color_val;
 
-    // For X..Y in the framebuffer for the size of the character we have,
-    // draw the pixels for the character based on the font
     for (uint8_t y_offset = 0; y_offset < char_height; y_offset++) {
         for (uint8_t x_offset = 0; x_offset < char_width; x_offset++) {
-
-            // Gives the intensity of the pixel at this point for the font
             uint8_t intensity = glyph[y_offset * char_width + x_offset];
 
-            // Only draw if the pixel is not fully transparent.
-            if (intensity > 0) {
+            if (intensity > 0) { // Only draw if the pixel is not fully transparent.
                 uint32_t screen_x = x + x_offset;
                 uint32_t screen_y = y + y_offset;
 
-                // Bounds check to ensure we don't draw outside the framebuffer.
                 if (screen_x < display_buffer->width && screen_y < display_buffer->height) {
                     uint32_t* pixel_addr = (uint32_t*)((uintptr_t)display_buffer->address + (screen_y * display_buffer->pitch) + (screen_x * (display_buffer->bpp / 8)));
 

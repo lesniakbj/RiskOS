@@ -16,9 +16,11 @@
 #define     SEEK_END            2
 
 #define SYSCALL_PROC_YIELD      24
-#define SYSCALL_PROC_EXIT       60
 #define SYSCALL_PROC_PID        39
 #define SYSCALL_PROC_FORK       57
+
+#define SYSCALL_EXEC            59
+#define SYSCALL_PROC_EXIT       60
 
 #define SYSCALL_WAITID          247
 #define     P_PID               0
