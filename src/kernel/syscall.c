@@ -12,7 +12,7 @@
 
 #define USERSPACE_TOP (0x7000000000ULL)
 #define MAX_WRITE_SIZE 1024
-#define MAX_SYSCALLS 61
+#define MAX_SYSCALLS 512
 
 #define USER_STACK_TOP 0x7000000000
 #define USER_STACK_SIZE 0x4000 // 16KB
@@ -32,6 +32,7 @@ static int64_t sys_lseek(registers_t* regs);
 static int64_t sys_brk(registers_t* regs);
 static int64_t sys_yield(registers_t* regs);
 static int64_t sys_getpid(registers_t* regs);
+static int64_t sys_waitid(registers_t* regs);
 
 // Syscall table
 static syscall_func_t syscall_table[MAX_SYSCALLS] = {
@@ -45,6 +46,7 @@ static syscall_func_t syscall_table[MAX_SYSCALLS] = {
     [SYS_PROC_EXIT]     = sys_exit,
     [SYS_PROC_PID]      = sys_getpid,
     [SYS_PROC_FORK]     = sys_fork,
+    [SYS_WAITID]        = sys_waitid,
 };
 
 
@@ -94,13 +96,19 @@ int64_t syscall_handler(registers_t* regs) {
 }
 
 static int64_t sys_exit(registers_t* regs) {
-    int64_t exit_code = regs->rdi; // First argument
-    LOG_INFO("Process %d exiting with code %d", proc_get_current()->pid, exit_code);
-    proc_terminate(proc_get_current());
-    proc_scheduler_run_special(NULL, true);
-    LOG_PANIC("No processes to run after exit! Halting.");
+    int64_t exit_code = regs->rdi;
+    process_t* current = proc_get_current();
+    LOG_INFO("Process %d exiting with code %d", current->pid, exit_code);
+
+    // Turn the process into a zombie and wake the parent.
+    proc_free(current, exit_code);
+
+    // Yield to the scheduler. This process will not run again.
+    proc_scheduler_run(regs);
+
+    LOG_PANIC("Zombie process %d ran again!", current->pid);
     for (;;) { asm("hlt"); }
-    return -1; // Should be unreachable
+    return -1;
 }
 
 static int64_t sys_write(registers_t* regs) {
@@ -169,7 +177,7 @@ static int64_t sys_fork(registers_t* parent_regs) {
     child->pml4_phys = vmm_create_address_space();
     if (child->pml4_phys == 0) {
         LOG_ERR("SYSCALL: Failed to create new address space for child.");
-        // TODO: Need a `proc_free(child)` function to clean up the process struct
+        proc_free(child);
         return -1;
     }
 
@@ -250,7 +258,11 @@ static int64_t sys_fork(registers_t* parent_regs) {
         child->file_descriptors[i] = parent->file_descriptors[i];
     }
 
-    proc_exec(child);
+    // Make sure we set the parent of this child correctly
+    child->parent = parent;
+    child->pgid = parent->pgid;
+
+    proc_make_ready(child);
     return child->pid;
 }
 
@@ -413,4 +425,49 @@ static int64_t sys_yield(registers_t* regs) {
 static int64_t sys_getpid(registers_t* regs) {
     (void)regs; // Unused
     return proc_get_current()->pid;
+}
+
+static int64_t sys_waitid(registers_t* regs) {
+    uint64_t idtype = regs->rdi;
+    uint64_t id = regs->rsi;
+    void* info = (void*)regs->rdx;
+    int options = regs->r10;
+    LOG_ERR("--- sys_waitid ENTER ---");
+    LOG_ERR("  idtype=%llu, id=%llu, info=0x%llx, options=%d", idtype, id, (uint64_t)info, options);
+
+    if(idtype != 0) { // Corresponds to P_PID
+        LOG_ERR("  Unsupported idtype: %llu. Only P_PID (0) is supported.", idtype);
+        return -1;
+    }
+
+    process_t* parent = proc_get_current();
+    LOG_ERR("  Parent PID %llu is waiting.", parent->pid);
+
+    for (;;) {
+        LOG_ERR("  [%d] Scanning for zombie child...", parent->pid);
+        process_t* child_to_reap = find_zombie_child(parent->pid, id);
+
+        if (child_to_reap != NULL) {
+            LOG_ERR("  [%d] Found zombie child %d to reap.", parent->pid, child_to_reap->pid);
+
+            // TODO: Copy exit information to the user-space `info` struct.
+
+            uint64_t child_pid = child_to_reap->pid;
+            proc_free(child_to_reap, child_to_reap->exit_code); // proc_free should turn it into a zombie
+            LOG_ERR("--- sys_waitid EXIT (reaped child %llu) ---", child_pid);
+            return child_pid;
+        }
+
+        LOG_ERR("  [%d] No zombie child found.", parent->pid);
+        if (options & 1) { // WNOHANG is typically 1
+            LOG_ERR("  WNOHANG option is set, returning 0.");
+            LOG_ERR("--- sys_waitid EXIT (WNOHANG) ---");
+            return 0;
+        }
+
+        parent->state = PROC_STATE_BLOCKED;
+        LOG_ERR("  [%d] Blocking self and calling scheduler.", parent->pid);
+        proc_scheduler_run(regs);
+        LOG_ERR("  [%d] Woken up from scheduler.", parent->pid);
+    }
 }

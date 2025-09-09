@@ -125,7 +125,7 @@ process_t* proc_create(proc_type_t proc_type) {
     return NULL;
 }
 
-void proc_exec(process_t* process) {
+void proc_make_ready(process_t* process) {
     process->state = PROC_STATE_READY;
     return;
 }
@@ -180,11 +180,75 @@ int64_t proc_setup_std_fds(process_t* proc) {
     return 0;
 }
 
+process_t* find_zombie_child(uint64_t parent_pid, int64_t child_pid_to_find) {
+    LOG_ERR("find_zombie_child: Searching for child of parent %llu. Specific child PID to find: %lld", parent_pid, child_pid_to_find);
+    for(int i = 0; i < MAX_PROCESSES; i++) {
+        process_t* current_proc = &process_table[i];
+        if (!current_proc->used) {
+            continue; // Skip unused slots
+        }
+
+        LOG_ERR("  -> Checking PID %llu: ParentPID=%llu, State=%d", current_proc->pid, current_proc->parent ? current_proc->parent->pid : (uint64_t)-1, current_proc->state);
+
+        if(current_proc->parent == NULL || current_proc->parent->pid != parent_pid) {
+            continue;
+        }
+        LOG_ERR("    -> Match: Is a child of parent %llu", parent_pid);
+
+        if (current_proc->state != PROC_STATE_ZOMBIE) {
+            continue;
+        }
+        LOG_ERR("    -> Match: Is a zombie.");
+
+        if (child_pid_to_find > 0) {
+            if (current_proc->pid == child_pid_to_find) {
+                LOG_ERR("      -> Match: Found specific PID %lld. Returning.", child_pid_to_find);
+                return current_proc;
+            }
+        } else {
+            LOG_ERR("      -> Match: Looking for any child. Returning PID %llu.", current_proc->pid);
+            return current_proc;
+        }
+    }
+
+    LOG_ERR("find_zombie_child: No matching zombie child found for parent %llu.", parent_pid);
+    return NULL;
+}
+
 void proc_terminate(process_t* proc) {
     if(proc) {
         proc->used = false;  // Mark the slot as free
         proc->state = PROC_STATE_UNUSED;
         // In a more advanced kernel, we would free memory, close files, etc...
+    }
+}
+
+void proc_free(process_t* proc, int64_t exit_code) {
+    // Become a zombie
+    proc->state = PROC_STATE_ZOMBIE;
+    proc->exit_code = exit_code;
+
+    // TODO:  Free the user address space (page tables and physical pages)
+    // Free the kernel stack
+    // Close all file descriptors
+    //
+    if (proc->parent) {
+        proc_wakeup(proc->parent->pid);
+    }
+}
+
+process_t* proc_get_by_pid(uint64_t pid) {
+    if (pid >= MAX_PROCESSES || !process_table[pid].used) {
+        return NULL;
+    }
+    return &process_table[pid];
+}
+
+void proc_wakeup(uint64_t pid) {
+    process_t* proc_to_wake = proc_get_by_pid(pid);
+    if (proc_to_wake != NULL && proc_to_wake->state == PROC_STATE_BLOCKED) {
+        LOG_ERR("Waking up blocked process %d", pid);
+        proc_to_wake->state = PROC_STATE_READY;
     }
 }
 

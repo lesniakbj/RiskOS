@@ -103,7 +103,7 @@ void kernel_main() {
             if (init_proc != NULL) {
                 if (proc_setup_std_fds(init_proc) == 0) {
                     LOG_INFO("Successfully set up stdio for init process");
-                    proc_exec(init_proc);
+                    proc_make_ready(init_proc);
                 } else {
                     LOG_ERR("Failed to set up stdio for init process");
                 }

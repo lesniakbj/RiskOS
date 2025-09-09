@@ -20,6 +20,15 @@
 #define SYSCALL_PROC_PID        39
 #define SYSCALL_PROC_FORK       57
 
+#define SYSCALL_WAITID          247
+#define     P_PID               0
+#define     P_PIDFD             1
+#define     P_PGID              2
+#define     P_ALL               3
+#define     WNOHANG             (1 << 0)
+#define     WUNTRACED           (1 << 1)
+#define     WCONTINUED          (1 << 2)
+
 // The C-level syscall handler, to be called from the assembly wrapper.
 int64_t syscall_handler(registers_t* args);
 

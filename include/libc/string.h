@@ -11,6 +11,7 @@ char* strcpy(char* dest, const char* src);
 char* strncpy(char* dest, const char* src, size_t n);
 int strcmp(const char* s1, const char* s2);
 char* strtok(char* str, const char* delim);
+char* strcat(char* dest, const char* src);
 
 void utf8_to_ascii_safe(char* dest, const char* src, size_t dest_size);
 

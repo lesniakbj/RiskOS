@@ -125,6 +125,18 @@ int strcmp(const char* s1, const char* s2) {
     return *(const unsigned char*)s1 - *(const unsigned char*)s2;
 }
 
+char* strcat(char* dest, const char* src) {
+    char* original_dest = dest;
+    while (*dest) {
+        dest++;
+    }
+    while (*src) {
+        *dest++ = *src++;
+    }
+    *dest = '\0';
+    return original_dest;
+}
+
 char* strtok(char* str, const char* delim) {
     static char* static_str = NULL;
     if (str != NULL) {

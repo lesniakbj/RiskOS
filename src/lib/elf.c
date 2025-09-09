@@ -105,6 +105,10 @@ process_t* elf_load_process(void* file_ptr) {
     // Tell the scheduler where to find this register frame
     proc->kstack_ptr = (uint64_t)regs_frame;
     proc->entry_point = (void*)header->entry_point_addr;
+
+    // By convention, a new process loaded from an executable starts its own process group.
+    proc->pgid = proc->pid;
+
     LOG_INFO("ELF: Successfully loaded PID %llu.", proc->pid);
     return proc;
 }

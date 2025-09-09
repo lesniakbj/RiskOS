@@ -3,26 +3,37 @@
 #include <libc/string.h>
 #include <libc/stdlib.h>
 
+#include <stdarg.h>
+
 static uint64_t counter = 0;
 static int64_t serio_fd;
 
-static void mux_puts(const char* str) {
-    puts(str);
-    write(serio_fd, str, strlen(str));
-    write(serio_fd, "\n", 1);
+// A mux_printf that writes to both the console (stdout) and the serial port
+void mux_printf(const char* format, ...) {
+    va_list args;
+
+    // Print to standard output (the console)
+    va_start(args, format);
+    vdprintf(STDOUT_FILENO, format, args);
+    va_end(args);
+
+    // Print to the serial port
+    va_start(args, format);
+    vdprintf(serio_fd, format, args);
+    va_end(args);
 }
 
 static void test_write() {
-    serio_fd = open("/dev/serial01", 1); // TODO: Define read, write, exec flags
-    mux_puts("Starting init...");
+    mux_printf("Starting init...\n");
 }
+
 
 static int64_t test_fork() {
     int64_t fork_pid = fork();
     if(fork_pid == 0) {
-        mux_puts("I am the child!");
+        mux_printf("I am the child!\n");
     } else {
-        mux_puts("I am the parent!");
+        mux_printf("I am the parent!\n");
     }
     return fork_pid;
 }
@@ -33,89 +44,164 @@ static void test_read() {
     char buf[533];
     int64_t bytes_read = read(linker_fd, buf, 532);
     buf[bytes_read] = '\0';
-    mux_puts("I read the following number of bytes:");
-
-    // Convert bytes_read to a string for printing.
-    char str[21];
-    itoa(bytes_read, str, 10);
-    mux_puts(str);
+    mux_printf("I read the following number of bytes: %d\n", bytes_read);
 
     if(bytes_read == 532) {
-        mux_puts("I read 532 bytes! yay!");
-        mux_puts("Those UTF-8 bytes yield:");
-        mux_puts(buf);
+        mux_printf("I read 532 bytes! yay!\n");
+        mux_printf("Those UTF-8 bytes yield:\n%s\n", buf);
 
         char ascii_buf[533];
         utf8_to_ascii_safe(ascii_buf, buf, 533);
-        mux_puts("Those ASCII bytes yield:");
-        mux_puts(ascii_buf);
+        mux_printf("Those ASCII bytes yield:\n%s\n", ascii_buf);
     }
 }
 
 static void test_brk() {
     // Testing
-    mux_puts("  Lets test brk() while we're here...");
+    mux_printf("  Lets test brk() while we're here...\n");
     int64_t status = brk((void*)0x802000);
     if(status == 0) {
-        mux_puts("  We set our brk to 0x802000");
-        mux_puts("  But wait! I wanna see what our break is...");
+        mux_printf("  We set our brk to 0x802000\n");
+        mux_printf("  But wait! I wanna see what our break is...\n");
         int64_t current_brk_val = (int64_t)brk(0);
         if(current_brk_val > 0) {
-            char brk_str[21];
-            itoa(current_brk_val, brk_str, 16);
-            mux_puts("  Current break is: ");
-            mux_puts(brk_str);
-            mux_puts("  Requesting addition of 0x100000");
+            mux_printf("  Current break is: 0x%x\n", current_brk_val);
+            mux_printf("  Requesting addition of 0x100000\n");
             void* sbrk_ret = sbrk(0x100000);
             if ((int64_t)sbrk_ret != -1) {
                 int64_t new_brk_val = (int64_t)brk(0);
                 if(new_brk_val > 0) {
-                    char new_brk_str[21];
-                    itoa(new_brk_val, new_brk_str, 16);
-                    mux_puts("  New break is: ");
-                    mux_puts(new_brk_str);
+                    mux_printf("  New break is: 0x%x\n", new_brk_val);
                 }
             } else {
-                mux_puts("  sbrk failed!");
+                mux_printf("  sbrk failed!\n");
             }
         }
     } else {
-        mux_puts("  brk(0x802000) failed!");
+        mux_printf("  brk(0x802000) failed!\n");
+    }
+}
+
+void test_fork_bomb() {
+    #define MAX_FORKS 500
+    mux_printf("--- Starting Fork Bomb Test ---\n");
+
+    for (int i = 0; i < MAX_FORKS; i++) {
+        int64_t child_pid = fork();
+        if (child_pid < 0) {
+            mux_printf("Fork failed! Halting test.\n");
+            break;
+        }
+
+        if(child_pid == 0) {
+            mux_printf("I am a child, my PID is: %d\n", getpid());
+            continue;
+        } else {
+            mux_printf("I am a parent, waiting on child: %d\n", child_pid);
+            waitpid(child_pid, NULL, 0);
+            mux_printf("I am exiting as parent: %d\n", getpid());
+            exit(0);
+        }
+    }
+
+    // This code is only reached by the final child in the chain
+    mux_printf("--- Fork Bomb Test Finished ---\n");
+}
+
+void test_concurrent_forks() {
+    #define NUM_CHILDREN 5
+    mux_printf("--- Starting Concurrent Fork Test ---\n");
+
+    uint64_t children_pids[NUM_CHILDREN];
+
+    // --- Parent Process: Creation Phase ---
+    for (int i = 0; i < NUM_CHILDREN; i++) {
+        int64_t child_pid = fork();
+
+        if (child_pid < 0) {
+            mux_printf("Fork failed! Halting test.\n");
+            return;
+        }
+
+        if (child_pid == 0) {
+            // --- Child Process Logic ---
+            uint64_t child_self_pid = getpid();
+            mux_printf("  -> Child process started, PID: %d\n", child_self_pid);
+
+            for (int j = 0; j < 3; j++) {
+                mux_printf("    -> Child %d is yielding.\n", child_self_pid);
+                yield();
+            }
+
+            mux_printf("  -> Child process finished, PID: %d\n", child_self_pid);
+            exit(child_self_pid);
+        } else {
+            // --- Parent Process ---
+            children_pids[i] = child_pid;
+        }
+    }
+
+    // --- Parent Process: Reaping Phase ---
+    mux_printf("--- Parent finished creating children. Now waiting... ---\n");
+
+    for (int i = 0; i < NUM_CHILDREN; i++) {
+        uint64_t child_to_reap = children_pids[i];
+        mux_printf("  -> Parent waiting for child PID: %d\n", child_to_reap);
+        waitpid(child_to_reap, NULL, 0);
+        mux_printf("  -> Parent reaped child PID: %d\n", child_to_reap);
+    }
+
+    mux_printf("--- Concurrent Fork Test Finished ---\n");
+}
+
+static void child_process_logic(uint64_t pid) {
+    for(;;) {
+        counter++;
+
+        if(counter % 500 == 0) {
+            yield();
+            mux_printf("I just did a yield!\n");
+            // test_brk();
+        }
+
+        if(counter > 1000) {
+            mux_printf("Time for me to exit!\n");
+            mux_printf("%d\n", pid);
+
+            int64_t status = close(serio_fd);
+            if(!status) {
+                mux_printf("I just closed a file descriptor for serial! I shouldn\'t see this on serial!\n");
+            }
+
+            exit(pid);
+        }
+    }
+}
+
+static void reaping_loop() {
+    mux_printf("Entering main init loop to reap orphans...\n");
+    for (;;) {
+        waitpid(-1, NULL, WNOHANG);
+        yield();
     }
 }
 
 int main() {
+    serio_fd = open("/dev/serial01", 1); // TODO: Define read, write, exec flags
     test_write();
+    test_fork_bomb();
+    test_concurrent_forks();
     int64_t fork_pid = test_fork();
     // test_read();
 
     uint64_t pid = getpid();
     if(fork_pid == 0) {
-        mux_puts("I am the child so I am going to do more work...");
-        for(;;) {
-            counter++;
-
-            if(counter % 500 == 0) {
-                yield();
-                mux_puts("I just did a yield!");
-                // test_brk();
-            }
-
-            if(counter > 1000) {
-                mux_puts("Time for me to exit!");
-                int64_t status = close(serio_fd);
-                if(!status) {
-                    mux_puts("I just closed a file descriptor for serial! I shouldn't see this on serial!");
-                }
-                char buf[21];
-                itoa(pid + 100, buf, 10);
-                mux_puts(buf);
-
-                exit(pid + 100);    // Exit with the PID so we can test we receive it correctly.
-            }
-        }
+        mux_printf("I am the child so I am going to do more work...\n");
+        child_process_logic(pid);
     } else {
-        mux_puts("I am the parent and I am tired... exiting...");
-        exit(pid + 100);
+        waitpid(fork_pid, NULL, P_PID);
+        mux_printf("Parent (init) has reaped the test child process.\n");
+        mux_printf("%d\n", pid);
+        exit(pid);
     }
 }

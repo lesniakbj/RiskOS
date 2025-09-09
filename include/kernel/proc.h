@@ -7,7 +7,7 @@
 #include <arch/x86-64/interrupts.h>
 #include <arch/x86-64/vmm.h>
 
-#define MAX_PROCESSES 256
+#define MAX_PROCESSES 1024
 #define MAX_FD_PER_PROCESS 16
 
 // Process states
@@ -17,7 +17,8 @@ typedef enum {
     PROC_STATE_READY,        // Process is ready to run
     PROC_STATE_RUNNING,      // Process is currently running
     PROC_STATE_SLEEPING,     // Process is sleeping/blocking
-    PROC_STATE_ZOMBIE,       // Process has exited but not waited on
+    PROC_STATE_BLOCKED,      // Process is sleeping/blocking
+    PROC_STATE_ZOMBIE,       // Process has is being waited on
     PROC_STATE_EXIT,         // Process has exited but not waited on
     PROC_STATE_INIT_WAIT     // Process is waiting for children to exit
 } proc_state_t;
@@ -37,22 +38,28 @@ typedef struct file_desc {
 
 // Process control block
 typedef struct process {
-    uint8_t used;               // Is this process slot in use?
-    uint64_t pid;               // Process ID
-    proc_state_t state;         // Current state of the process
-    proc_type_t type;           // Type of process (kernel or user)
-    uint64_t pml4_phys;         // Physical address of the process's page table (PML4)
-    void* kernel_stack;         // Pointer to the kernel stack for this process
-    size_t kernel_stack_size;   // Size of the kernel stack
-    uint64_t kstack_ptr;        // Current kernel stack pointer (used for context switches)
-    void* entry_point;          // Entry point of the process
-    struct process* parent;     // Pointer to the parent process
-    uint64_t exit_code;         // Exit code if the process has exited
-    vfs_node_t* working_dir;    // Working dir of this process
+    // === Basic Process Metadata ===
+    bool used;                      // Is this process slot in use?
+    uint64_t pid;                   // Process ID
+    uint64_t pgid;                  // Process Group ID
+    proc_state_t state;             // Current state of the process
+    proc_type_t type;               // Type of process (kernel or user)
+
+    // === Process Memory Model Metadata ===
+    uint64_t pml4_phys;             // Physical address of the process's page table (PML4)
+    void* kernel_stack;             // Pointer to the kernel stack for this process
+    size_t kernel_stack_size;       // Size of the kernel stack
+    uint64_t kstack_ptr;            // Current kernel stack pointer (used for context switches)
+    void* entry_point;              // Entry point of the process
     uint64_t program_break;         // Current size of data/heap
     uint64_t program_break_start;   // Start of the program break (heap/data segements)
-    
-    // File descriptors
+
+    // === Parent and Control FLow Metadata ===
+    struct process* parent;         // Pointer to the parent process
+    int64_t exit_code;              // Exit code if the process has exited
+
+    // === VFS and File Descriptors ===
+    vfs_node_t* working_dir;        // Working dir of this process
     file_desc_t file_descriptors[MAX_FD_PER_PROCESS];
 } process_t;
 
@@ -65,7 +72,7 @@ void proc_init();
 process_t* proc_create(proc_type_t proc_type);
 
 // Execute a process (set its state to READY).
-void proc_exec(process_t* process);
+void proc_make_ready(process_t* process);
 void proc_terminate(process_t* proc);
 
 // Run the process scheduler. This will switch to the next runnable process.
@@ -74,6 +81,8 @@ void proc_scheduler_run_special(registers_t *regs, bool is_exit);
 
 // Get the current process
 process_t* proc_get_current();
+
+process_t* find_zombie_child(uint64_t parent_pid, int64_t child_pid_to_find);
 
 int64_t proc_setup_std_fds(process_t* proc);
 
