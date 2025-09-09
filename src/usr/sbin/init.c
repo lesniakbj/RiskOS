@@ -186,11 +186,27 @@ static void reaping_loop() {
     }
 }
 
-int main() {
+int main(int argc, char** argv, char** envp) {
     serio_fd = open("/dev/serial01", 1); // TODO: Define read, write, exec flags
+    
+    // Log the variables passed into main after opening serial
+    mux_printf("argc: %d\n", argc);
+    mux_printf("argv: %p\n", argv);
+    if (argv != NULL) {
+        for (int i = 0; i < argc; i++) {
+            mux_printf("argv[%d]: %s\n", i, argv[i]);
+        }
+    }
+    mux_printf("envp: %p\n", envp);
+    if (envp != NULL) {
+        for (int i = 0; envp[i] != NULL; i++) {
+            mux_printf("envp[%d]: %s\n", i, envp[i]);
+        }
+    }
+    
     test_write();
-    test_fork_bomb();
-    test_concurrent_forks();
+    //test_fork_bomb();
+    //test_concurrent_forks();
     int64_t fork_pid = test_fork();
     // test_read();
 

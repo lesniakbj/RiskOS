@@ -6,21 +6,38 @@
 _start:
     # The x86-64 System V ABI requires the stack to be 16-byte aligned before a call
     # instruction. The entry point is not guaranteed to be aligned.
-    # We clear the direction flag and align the stack.
-    cld
-    and rsp, ~0xf
+    # The kernel sets up the stack so that RSP points to argc.
+    cld                   # Clear direction flag
+    # RSP already points to argc
 
     # Per the ABI, the frame pointer should be 0 to terminate the stack frame chain.
     xor rbp, rbp
 
-    # TODO: Eventually, pop argc, argv, and envp from the stack here
-    # --- GET argc & argv ---
-    # pop rdi        # Pop argc into RDI (1st argument to main)
-    # mov rsi, rsp   # RSP now points to argv[0], so RSI gets argv (2nd argument to main)
-    # --- END GET argc & argv ---
+    # --- GET argc & argv & envp ---
+    # Stack layout at _start (RSP points here):
+    # [argc]              # 8 bytes
+    # [argv[0]]           # 8 bytes
+    # ...
+    # [argv[argc-1]]      # 8 bytes
+    # [NULL]              # 8 bytes (terminator for argv)
+    # [envp[0]]           # 8 bytes
+    # ...
+    # [envp[n-1]]         # 8 bytes
+    # [NULL]              # 8 bytes (terminator for envp)
+    # [strings...]        # Variable size
 
-    # TODO: Eventually support envp from the stack here
-    # and pass them to main in RDI and RSI. For now, we call main with no args.
+    mov rdi, [rsp]        # Pop argc into RDI (1st argument to main)
+    lea rsi, [rsp+8]      # RSI gets argv (2nd argument to main) - address of argv[0]
+    # Calculate envp: RSI points to argv array. argv array has (argc + 1) pointers.
+    # So, envp array starts at RSI + (argc + 1) * 8
+    mov rax, rdi          # rax = argc
+    inc rax               # rax = argc + 1
+    shl rax, 3            # rax = (argc + 1) * 8 (bit shift for multiplication by 8)
+    lea rdx, [rsi + rax]  # RDX gets envp (3rd argument to main) - address of envp[0]
+
+    # --- END GET argc & argv & envp ---
+
+    # Call main with argc (rdi), argv (rsi), envp (rdx)
     call main
 
     # main has returned. The return value is in RAX.

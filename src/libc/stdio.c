@@ -80,6 +80,22 @@ int vdprintf(int fd, const char *format, va_list args) {
                 count++;
                 break;
             }
+            case 'p': {
+                uint64_t val = va_arg(args, uint64_t);
+                fd_print_string(fd, "0x");
+                count += 2;
+                // Print pointer value as hex
+                char buf[17]; // 16 hex chars + null terminator
+                utoa(val, buf, 16);
+                // Pad with leading zeros to make it 16 characters
+                int len = strlen(buf);
+                for (int i = 0; i < 16 - len; i++) {
+                    write(fd, "0", 1);
+                    count++;
+                }
+                count += fd_print_string(fd, buf);
+                break;
+            }
             default: {
                 write(fd, "%", 1);
                 write(fd, p, 1);

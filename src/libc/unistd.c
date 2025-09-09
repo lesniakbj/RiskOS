@@ -12,9 +12,9 @@ void exit(int64_t status) {
     _SYSCALL1_NO_RET(SYS_PROC_EXIT, status);
 }
 
-int64_t execve(const char* pathname, char *const argv[], char *const envp[]) [
-    _SYSCALL3(SYS_EXEC, pathname, argv, envp);
-]
+int64_t execve(const char* pathname, char** argv, char** envp) {
+    return _SYSCALL3(SYS_EXEC, pathname, argv, envp);
+}
 
 int64_t getpid() {
     return _SYSCALL0(SYS_PROC_PID);
@@ -49,9 +49,6 @@ int64_t waitid(uint64_t idtype, uint64_t id, void* infop, int options) {
 // TODO: The type pid_t should be properly defined in a header.
 int64_t waitpid(int64_t pid, int *wstatus, int options) {
     // TODO: These constants should be defined in a header (e.g., <sys/wait.h>)
-    #define P_PID 0
-    #define P_PGID 1
-    #define P_ALL 2
     #define WEXITED 4
 
     uint64_t idtype;

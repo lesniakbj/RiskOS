@@ -99,7 +99,14 @@ void kernel_main() {
         LOG_INFO("Successfully opened /init/sbin/init");
         if(test_node->flags & VFS_EXEC) {
             LOG_INFO("File is an exec!");
-            process_t* init_proc = elf_load_process(((tar_file_data_t*)(test_node->private_data))->data);
+            
+            // Prepare argc, argv, envp for PID 1
+            int init_argc = 1;
+            char* init_argv[] = {"/init/sbin/init", NULL};
+            char* init_envp[] = {"HOME=/", "PATH=/bin:/usr/bin", NULL};
+            
+            process_t* init_proc = elf_load_process_with_args(((tar_file_data_t*)(test_node->private_data))->data, 
+                                                              init_argc, init_argv, init_envp);
             if (init_proc != NULL) {
                 if (proc_setup_std_fds(init_proc) == 0) {
                     LOG_INFO("Successfully set up stdio for init process");

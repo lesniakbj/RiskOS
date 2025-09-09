@@ -53,6 +53,7 @@ typedef struct elf_program_header {
 } __attribute__((packed)) elf_program_header_t;
 
 process_t* elf_load_process(void* file_ptr);
+process_t* elf_load_process_with_args(void* file_ptr, int argc, char** argv, char** envp);
 void elf_load_process_vfs(vfs_node_t* file);
 void elf_load_process_vfs_args(vfs_node_t* file, int argc, char** argv, char** envp);
 #endif

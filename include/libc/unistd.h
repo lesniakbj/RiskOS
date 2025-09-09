@@ -124,7 +124,7 @@
 void yield();
 int64_t fork();
 int64_t pid();
-int64_t execve(const char* pathname, char *const argv[], char *const envp[]);
+int64_t execve(const char* pathname, char** argv, char** envp);
 
 // --- Process memory requests ---
 int64_t brk(void* addr);
